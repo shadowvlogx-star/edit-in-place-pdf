@@ -61,6 +61,12 @@ export function EditorView({ file, onBack }: Props) {
 
           const { width, height } = await renderPageToCanvas(pdf, i, pdfCanvas);
 
+          // Hide the rendered PDF entirely — we only show editable text on a
+          // blank white page, so there's no doubled "original + editing" view.
+          const pdfCtx = pdfCanvas.getContext("2d")!;
+          pdfCtx.fillStyle = "#ffffff";
+          pdfCtx.fillRect(0, 0, width, height);
+
           const overlay = document.createElement("canvas");
           overlay.width = width;
           overlay.height = height;
@@ -78,29 +84,13 @@ export function EditorView({ file, onBack }: Props) {
           const pageData = await extractPageBlocks(pdf, i);
           pagesDataRef.current.push(pageData);
 
-          // Erase original text on the rendered PDF canvas so the editable
-          // textbox isn't visually doubled with the underlying glyphs.
-          const pdfCtx = pdfCanvas.getContext("2d")!;
-          pdfCtx.save();
-          pdfCtx.fillStyle = "#ffffff";
-          for (const b of pageData.blocks) {
-            const padX = 0.5 * RENDER_SCALE;
-            const padY = 1 * RENDER_SCALE;
-            pdfCtx.fillRect(
-              b.x * RENDER_SCALE - padX,
-              b.y * RENDER_SCALE - padY,
-              b.w * RENDER_SCALE + padX * 2,
-              b.h * RENDER_SCALE + padY * 2,
-            );
-          }
-          pdfCtx.restore();
-
           for (const b of pageData.blocks) {
             const fv = fontVariant(b.font);
+            // Anchor by baseline-ish top: pdf.js gives glyph-box top at b.y.
             const tb = new fabric.Textbox(b.text, {
               left: b.x * RENDER_SCALE,
               top: b.y * RENDER_SCALE,
-              width: Math.max(b.w * RENDER_SCALE, 20),
+              width: Math.max(b.w * RENDER_SCALE + 4, 20),
               fontSize: b.size * RENDER_SCALE,
               fontFamily: mapFont(b.font),
               fontWeight: fv.bold ? "700" : "400",
@@ -109,7 +99,7 @@ export function EditorView({ file, onBack }: Props) {
               editable: true,
               hasControls: false,
               hasBorders: false,
-              backgroundColor: "#ffffff",
+              lineHeight: 1,
               lockMovementX: true,
               lockMovementY: true,
               splitByGrapheme: false,

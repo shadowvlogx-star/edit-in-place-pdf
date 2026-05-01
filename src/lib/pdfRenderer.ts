@@ -74,18 +74,25 @@ export async function extractPageBlocks(
     const text = item.str;
     if (!text || !text.trim()) continue;
 
-    // transform = [a, b, c, d, e, f]; font size ~ sqrt(a*a + b*b) for non-rotated
+    // transform = [a, b, c, d, e, f]; for non-rotated text, font size = |d|.
+    // Use the larger of |d| and hypot(a,b) to be safe with scaled fonts.
     const a = item.transform[0];
+    const b = item.transform[1];
     const d = item.transform[3];
     const e = item.transform[4];
     const f = item.transform[5];
-    const size = Math.hypot(a, item.transform[1]) || Math.abs(d) || 12;
+    const sizeFromD = Math.abs(d);
+    const sizeFromAB = Math.hypot(a, b);
+    const size = sizeFromD || sizeFromAB || 12;
 
-    // Convert PDF coords (origin bottom-left) to top-left origin
-    const xPt = e;
-    const yPt = viewport.height - f - size * 0.8; // approx baseline -> top
+    // pdf.js item.height is the glyph box height in points (== font size for
+    // most fonts). item.width is the run width in points.
+    const hPt = item.height || size;
     const wPt = item.width || text.length * size * 0.5;
-    const hPt = item.height || size * 1.2;
+
+    // Convert PDF coords (origin bottom-left, y at baseline) to top-left origin.
+    const xPt = e;
+    const yPt = viewport.height - f - hPt; // top of glyph box
 
     const styles = (content.styles as Record<string, { fontFamily: string }>) || {};
     const cssFamily = styles[item.fontName]?.fontFamily || "";
