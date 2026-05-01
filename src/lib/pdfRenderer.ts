@@ -88,7 +88,11 @@ export async function extractPageBlocks(
     const hPt = item.height || size * 1.2;
 
     const styles = (content.styles as Record<string, { fontFamily: string }>) || {};
-    const fontFamily = styles[item.fontName]?.fontFamily || item.fontName || "";
+    const cssFamily = styles[item.fontName]?.fontFamily || "";
+    // Combine the css family hint with the raw PostScript name. Raw names like
+    // "BCDEEE+Calibri-Bold" or "TimesNewRomanPS-BoldItalicMT" carry weight/style
+    // info that the css family alone usually drops.
+    const font = `${cssFamily} ${item.fontName || ""}`.trim();
 
     blocks.push({
       id: `p${pageNumber}_b${i++}`,
@@ -97,7 +101,7 @@ export async function extractPageBlocks(
       w: wPt,
       h: hPt,
       text,
-      font: fontFamily,
+      font,
       size,
       color: "#111827",
     });
