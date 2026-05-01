@@ -79,12 +79,15 @@ export function EditorView({ file, onBack }: Props) {
           pagesDataRef.current.push(pageData);
 
           for (const b of pageData.blocks) {
+            const fv = fontVariant(b.font);
             const tb = new fabric.Textbox(b.text, {
               left: b.x * RENDER_SCALE,
               top: b.y * RENDER_SCALE,
               width: Math.max(b.w * RENDER_SCALE, 20),
               fontSize: b.size * RENDER_SCALE,
               fontFamily: mapFont(b.font),
+              fontWeight: fv.bold ? "700" : "400",
+              fontStyle: fv.italic ? "italic" : "normal",
               fill: b.color || "#111827",
               editable: true,
               hasControls: false,
