@@ -78,6 +78,23 @@ export function EditorView({ file, onBack }: Props) {
           const pageData = await extractPageBlocks(pdf, i);
           pagesDataRef.current.push(pageData);
 
+          // Erase original text on the rendered PDF canvas so the editable
+          // textbox isn't visually doubled with the underlying glyphs.
+          const pdfCtx = pdfCanvas.getContext("2d")!;
+          pdfCtx.save();
+          pdfCtx.fillStyle = "#ffffff";
+          for (const b of pageData.blocks) {
+            const padX = 0.5 * RENDER_SCALE;
+            const padY = 1 * RENDER_SCALE;
+            pdfCtx.fillRect(
+              b.x * RENDER_SCALE - padX,
+              b.y * RENDER_SCALE - padY,
+              b.w * RENDER_SCALE + padX * 2,
+              b.h * RENDER_SCALE + padY * 2,
+            );
+          }
+          pdfCtx.restore();
+
           for (const b of pageData.blocks) {
             const fv = fontVariant(b.font);
             const tb = new fabric.Textbox(b.text, {
@@ -92,17 +109,13 @@ export function EditorView({ file, onBack }: Props) {
               editable: true,
               hasControls: false,
               hasBorders: false,
-              backgroundColor: "rgba(255,255,255,0.001)",
+              backgroundColor: "#ffffff",
               lockMovementX: true,
               lockMovementY: true,
               splitByGrapheme: false,
             });
             (tb as unknown as { _blockId: string })._blockId = b.id;
 
-            tb.on("editing:entered", () => {
-              tb.set("backgroundColor", "#ffffff");
-              fc.requestRenderAll();
-            });
             tb.on("editing:exited", () => {
               const text = tb.text || "";
               if (text !== b.text) editsRef.current[b.id] = text;
