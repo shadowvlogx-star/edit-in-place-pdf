@@ -10,18 +10,50 @@ export interface EditMap {
 
 type FontKind = "helv" | "times" | "courier";
 
+// Known serif / mono families to map onto the closest Standard 14 face.
+const SERIF_FAMILIES = [
+  "times", "serif", "roman", "georgia", "garamond", "cambria", "minion",
+  "palatino", "bookman", "caslon", "baskerville", "didot", "merriweather",
+  "source serif", "noto serif", "pt serif", "liberation serif", "dejavu serif",
+  "cmr", "computer modern", "charter", "century", "lora", "playfair",
+];
+const MONO_FAMILIES = [
+  "courier", "mono", "consolas", "menlo", "monaco", "inconsolata",
+  "source code", "fira code", "fira mono", "jetbrains", "ibm plex mono",
+  "liberation mono", "dejavu mono", "cmtt", "andale", "lucida console",
+];
+
+function normalize(s: string): string {
+  // Strip the random PDF subset prefix like "BCDEEE+" and lower-case.
+  return (s || "").replace(/^[A-Z]{6}\+/g, "").toLowerCase();
+}
+
 function pickFontKind(fontHint: string): FontKind {
-  const n = (fontHint || "").toLowerCase();
-  if (n.includes("times") || n.includes("serif") || n.includes("roman")) return "times";
-  if (n.includes("courier") || n.includes("mono")) return "courier";
+  const n = normalize(fontHint);
+  if (MONO_FAMILIES.some((m) => n.includes(m))) return "courier";
+  if (SERIF_FAMILIES.some((m) => n.includes(m))) return "times";
   return "helv";
 }
 
 function variant(fontHint: string): { bold: boolean; italic: boolean } {
-  const n = (fontHint || "").toLowerCase();
+  const n = normalize(fontHint);
   return {
-    bold: n.includes("bold") || n.includes("black") || n.includes("heavy"),
-    italic: n.includes("italic") || n.includes("oblique"),
+    bold:
+      /\bbold\b/.test(n) ||
+      /-bold/.test(n) ||
+      /,bold/.test(n) ||
+      n.includes("black") ||
+      n.includes("heavy") ||
+      n.includes("semibold") ||
+      n.includes("demibold") ||
+      n.includes("extrabold") ||
+      /\bbd\b/.test(n) ||
+      / w[6-9]/.test(n),
+    italic:
+      n.includes("italic") ||
+      n.includes("oblique") ||
+      /-it\b/.test(n) ||
+      /\bit\b/.test(n),
   };
 }
 
