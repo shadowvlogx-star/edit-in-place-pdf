@@ -212,11 +212,49 @@ export function EditorView({ file, onBack }: Props) {
   );
 }
 
+function normalizeFont(name: string): string {
+  return (name || "").replace(/^[A-Z]{6}\+/g, "").toLowerCase();
+}
+
+const SERIF_HINTS = [
+  "times", "serif", "roman", "georgia", "garamond", "cambria", "minion",
+  "palatino", "bookman", "caslon", "baskerville", "didot", "merriweather",
+  "source serif", "noto serif", "pt serif", "liberation serif", "dejavu serif",
+  "cmr", "computer modern", "charter", "century", "lora", "playfair",
+];
+const MONO_HINTS = [
+  "courier", "mono", "consolas", "menlo", "monaco", "inconsolata",
+  "source code", "fira code", "fira mono", "jetbrains", "ibm plex mono",
+  "liberation mono", "dejavu mono", "cmtt", "andale", "lucida console",
+];
+
 function mapFont(name: string): string {
-  const n = (name || "").toLowerCase();
-  if (n.includes("times") || n.includes("serif") || n.includes("roman"))
-    return "Times New Roman, Times, serif";
-  if (n.includes("courier") || n.includes("mono"))
-    return "Courier New, Courier, monospace";
-  return "Helvetica, Arial, sans-serif";
+  const n = normalizeFont(name);
+  if (MONO_HINTS.some((m) => n.includes(m)))
+    return '"JetBrains Mono", "Courier New", Courier, monospace';
+  if (SERIF_HINTS.some((m) => n.includes(m)))
+    return '"Source Serif 4", "Times New Roman", Times, serif';
+  return 'Inter, Helvetica, Arial, sans-serif';
+}
+
+function fontVariant(name: string): { bold: boolean; italic: boolean } {
+  const n = normalizeFont(name);
+  return {
+    bold:
+      /\bbold\b/.test(n) ||
+      /-bold/.test(n) ||
+      /,bold/.test(n) ||
+      n.includes("black") ||
+      n.includes("heavy") ||
+      n.includes("semibold") ||
+      n.includes("demibold") ||
+      n.includes("extrabold") ||
+      /\bbd\b/.test(n) ||
+      / w[6-9]/.test(n),
+    italic:
+      n.includes("italic") ||
+      n.includes("oblique") ||
+      /-it\b/.test(n) ||
+      /\bit\b/.test(n),
+  };
 }
