@@ -3,48 +3,49 @@ import * as fabric from "fabric";
 import { Download, ArrowLeft, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { loadPdf, renderPageToCanvas, RENDER_SCALE } from "@/lib/pdfRenderer";
-import { extractPdf, savePdf, type ExtractResponse, type Edit } from "@/lib/api";
+import {
+  loadPdf,
+  renderPageToCanvas,
+  extractPageBlocks,
+  RENDER_SCALE,
+  type ExtractedPage,
+} from "@/lib/pdfRenderer";
+import { buildEditedPdf, type EditMap } from "@/lib/pdfExport";
 
 interface Props {
   file: File;
   onBack: () => void;
 }
 
-interface PageRefs {
+interface PageRef {
   pageNumber: number;
   fabricCanvas: fabric.Canvas;
-  edits: Map<string, Edit>;
 }
 
 export function EditorView({ file, onBack }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const pageRefsRef = useRef<PageRefs[]>([]);
+  const pageRefsRef = useRef<PageRef[]>([]);
+  const editsRef = useRef<EditMap>({});
+  const pagesDataRef = useRef<ExtractedPage[]>([]);
+  const originalBytesRef = useRef<ArrayBuffer | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [extracted, setExtracted] = useState<ExtractResponse | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         setLoading(true);
-        const pdf = await loadPdf(file);
-
-        // Try to extract text metadata from backend. If the backend isn't
-        // configured yet, fall back to render-only mode (no editable overlays).
-        let extract: ExtractResponse | null = null;
-        try {
-          extract = await extractPdf(file);
-          if (!cancelled) setExtracted(extract);
-        } catch (e) {
-          console.warn("Extract API unavailable — rendering preview only.", e);
-          toast.warning("Backend not connected — editing disabled. Set VITE_API_URL.");
-        }
+        const buf = await file.arrayBuffer();
+        // Keep a pristine copy for pdf-lib (pdf.js may detach buffers).
+        originalBytesRef.current = buf.slice(0);
+        const pdf = await loadPdf(buf);
 
         if (!containerRef.current || cancelled) return;
         containerRef.current.innerHTML = "";
         pageRefsRef.current = [];
+        pagesDataRef.current = [];
+        editsRef.current = {};
 
         for (let i = 1; i <= pdf.numPages; i++) {
           if (cancelled) return;
@@ -60,7 +61,6 @@ export function EditorView({ file, onBack }: Props) {
 
           const { width, height } = await renderPageToCanvas(pdf, i, pdfCanvas);
 
-          // Fabric overlay sized to match
           const overlay = document.createElement("canvas");
           overlay.width = width;
           overlay.height = height;
@@ -75,45 +75,47 @@ export function EditorView({ file, onBack }: Props) {
             selection: false,
           });
 
-          const edits = new Map<string, Edit>();
+          const pageData = await extractPageBlocks(pdf, i);
+          pagesDataRef.current.push(pageData);
 
-          // If backend gave us blocks, render editable Textbox per block.
-          const pageData = extract?.pages[i - 1];
-          if (pageData) {
-            for (const b of pageData.blocks) {
-              const tb = new fabric.Textbox(b.text, {
-                left: b.x * RENDER_SCALE,
-                top: b.y * RENDER_SCALE,
-                width: Math.max(b.w * RENDER_SCALE, 20),
-                fontSize: b.size * RENDER_SCALE,
-                fontFamily: mapFont(b.font),
-                fill: b.color || "#111827",
-                editable: true,
-                hasControls: false,
-                hasBorders: false,
-                backgroundColor: "rgba(255,255,255,0.001)",
-                lockMovementX: true,
-                lockMovementY: true,
-              });
-              (tb as unknown as { _blockId: string })._blockId = b.id;
+          for (const b of pageData.blocks) {
+            const tb = new fabric.Textbox(b.text, {
+              left: b.x * RENDER_SCALE,
+              top: b.y * RENDER_SCALE,
+              width: Math.max(b.w * RENDER_SCALE, 20),
+              fontSize: b.size * RENDER_SCALE,
+              fontFamily: mapFont(b.font),
+              fill: b.color || "#111827",
+              editable: true,
+              hasControls: false,
+              hasBorders: false,
+              backgroundColor: "rgba(255,255,255,0.001)",
+              lockMovementX: true,
+              lockMovementY: true,
+              splitByGrapheme: false,
+            });
+            (tb as unknown as { _blockId: string })._blockId = b.id;
 
-              // Mask the original glyphs when entering edit mode so the
-              // underlying PDF text doesn't show through the new text.
-              tb.on("editing:entered", () => {
-                tb.set("backgroundColor", "#ffffff");
-                fc.requestRenderAll();
-              });
-              tb.on("changed", () => {
-                edits.set(b.id, { id: b.id, page: i, text: tb.text || "" });
-              });
-              fc.add(tb);
-            }
+            tb.on("editing:entered", () => {
+              tb.set("backgroundColor", "#ffffff");
+              fc.requestRenderAll();
+            });
+            tb.on("editing:exited", () => {
+              const text = tb.text || "";
+              if (text !== b.text) editsRef.current[b.id] = text;
+              else delete editsRef.current[b.id];
+            });
+            tb.on("changed", () => {
+              const text = tb.text || "";
+              if (text !== b.text) editsRef.current[b.id] = text;
+              else delete editsRef.current[b.id];
+            });
+            fc.add(tb);
           }
 
-          pageRefsRef.current.push({ pageNumber: i, fabricCanvas: fc, edits });
+          pageRefsRef.current.push({ pageNumber: i, fabricCanvas: fc });
         }
 
-        // Click outside any active textbox -> exit edit mode (auto lock).
         const handleDocClick = (e: MouseEvent) => {
           const target = e.target as HTMLElement;
           const insideOverlay = target.closest("canvas.upper-canvas");
@@ -148,15 +150,24 @@ export function EditorView({ file, onBack }: Props) {
   }, [file]);
 
   const handleDownload = async () => {
-    if (!extracted) {
-      toast.error("Backend not connected — cannot save. Set VITE_API_URL.");
+    if (!originalBytesRef.current) {
+      toast.error("PDF not ready");
       return;
     }
     try {
       setSaving(true);
-      const allEdits: Edit[] = [];
-      for (const p of pageRefsRef.current) allEdits.push(...p.edits.values());
-      const blob = await savePdf(extracted.fileId, allEdits);
+      // Make sure any in-progress edits are committed.
+      for (const p of pageRefsRef.current) {
+        const active = p.fabricCanvas.getActiveObject();
+        if (active && (active as fabric.Textbox).isEditing) {
+          (active as fabric.Textbox).exitEditing();
+        }
+      }
+      const blob = await buildEditedPdf(
+        originalBytesRef.current.slice(0),
+        pagesDataRef.current,
+        editsRef.current,
+      );
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -198,7 +209,6 @@ export function EditorView({ file, onBack }: Props) {
   );
 }
 
-// Map PDF font name hints to web-safe equivalents.
 function mapFont(name: string): string {
   const n = (name || "").toLowerCase();
   if (n.includes("times") || n.includes("serif") || n.includes("roman"))
