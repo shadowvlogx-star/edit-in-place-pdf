@@ -87,10 +87,7 @@ export async function extractPageBlocks(
     const sizeFromAB = Math.hypot(a, b);
     const size = sizeFromD || sizeFromAB || 12;
 
-    // pdf.js item.height is the glyph box height in points (== font size for
-    // most fonts). item.width is the run width in points.
-    const hPt = item.height || size;
-    const wPt = item.width || text.length * size * 0.5;
+    // pdf.js item.height is glyph-box height; item.width is run width in points.
 
     // Convert PDF coords (origin bottom-left, y at baseline) to top-left origin.
     // baselineY is the baseline in top-left point space.
