@@ -15,6 +15,8 @@ export interface ExtractedBlock {
   y: number;
   w: number;
   h: number;
+  // baselineY is the PDF baseline in top-left point coordinates.
+  baselineY: number;
   text: string;
   font: string;
   size: number;
