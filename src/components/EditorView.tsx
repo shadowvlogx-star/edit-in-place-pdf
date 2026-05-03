@@ -92,10 +92,9 @@ export function EditorView({ file, onBack }: Props) {
             const BASELINE_RATIO = 0.79;
             const baselinePx = b.baselineY * RENDER_SCALE;
             const topPx = baselinePx - fontPx * BASELINE_RATIO;
-            const tb = new fabric.Textbox(b.text, {
+            const tb = new fabric.IText(b.text, {
               left: b.x * RENDER_SCALE,
               top: topPx,
-              width: Math.max(b.w * RENDER_SCALE + 4, 20),
               fontSize: fontPx,
               fontFamily: mapFont(b.font),
               fontWeight: fv.bold ? "700" : "400",
@@ -107,7 +106,7 @@ export function EditorView({ file, onBack }: Props) {
               lineHeight: 1,
               lockMovementX: true,
               lockMovementY: true,
-              splitByGrapheme: false,
+              padding: 0,
             });
             (tb as unknown as { _blockId: string })._blockId = b.id;
 
