@@ -86,12 +86,17 @@ export function EditorView({ file, onBack }: Props) {
 
           for (const b of pageData.blocks) {
             const fv = fontVariant(b.font);
-            // Anchor by baseline-ish top: pdf.js gives glyph-box top at b.y.
+            const fontPx = b.size * RENDER_SCALE;
+            // Fabric renders text baseline at roughly top + fontSize * 0.79
+            // (with lineHeight 1). Place box so baseline == PDF baseline.
+            const BASELINE_RATIO = 0.79;
+            const baselinePx = b.baselineY * RENDER_SCALE;
+            const topPx = baselinePx - fontPx * BASELINE_RATIO;
             const tb = new fabric.Textbox(b.text, {
               left: b.x * RENDER_SCALE,
-              top: b.y * RENDER_SCALE,
+              top: topPx,
               width: Math.max(b.w * RENDER_SCALE + 4, 20),
-              fontSize: b.size * RENDER_SCALE,
+              fontSize: fontPx,
               fontFamily: mapFont(b.font),
               fontWeight: fv.bold ? "700" : "400",
               fontStyle: fv.italic ? "italic" : "normal",

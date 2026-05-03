@@ -15,6 +15,8 @@ export interface ExtractedBlock {
   y: number;
   w: number;
   h: number;
+  // baselineY is the PDF baseline in top-left point coordinates.
+  baselineY: number;
   text: string;
   font: string;
   size: number;
@@ -85,20 +87,21 @@ export async function extractPageBlocks(
     const sizeFromAB = Math.hypot(a, b);
     const size = sizeFromD || sizeFromAB || 12;
 
-    // pdf.js item.height is the glyph box height in points (== font size for
-    // most fonts). item.width is the run width in points.
+    // pdf.js item.height is glyph-box height; item.width is run width in points.
+
+    // Convert PDF coords (origin bottom-left, y at baseline) to top-left origin.
+    // baselineY is the baseline in top-left point space.
+    const baselineY = viewport.height - f;
+    // Glyph-box top: ascent ≈ font size for most fonts. item.height (when
+    // present) is the glyph-box height which already approximates ascent+descent.
+    const ascent = size; // close to cap+ascent for typical fonts
+    const xPt = e;
+    const yPt = baselineY - ascent;
     const hPt = item.height || size;
     const wPt = item.width || text.length * size * 0.5;
 
-    // Convert PDF coords (origin bottom-left, y at baseline) to top-left origin.
-    const xPt = e;
-    const yPt = viewport.height - f - hPt; // top of glyph box
-
     const styles = (content.styles as Record<string, { fontFamily: string }>) || {};
     const cssFamily = styles[item.fontName]?.fontFamily || "";
-    // Combine the css family hint with the raw PostScript name. Raw names like
-    // "BCDEEE+Calibri-Bold" or "TimesNewRomanPS-BoldItalicMT" carry weight/style
-    // info that the css family alone usually drops.
     const font = `${cssFamily} ${item.fontName || ""}`.trim();
 
     blocks.push({
@@ -107,6 +110,7 @@ export async function extractPageBlocks(
       y: yPt,
       w: wPt,
       h: hPt,
+      baselineY,
       text,
       font,
       size,
