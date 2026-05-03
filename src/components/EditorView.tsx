@@ -61,12 +61,6 @@ export function EditorView({ file, onBack }: Props) {
 
           const { width, height } = await renderPageToCanvas(pdf, i, pdfCanvas);
 
-          // Hide the rendered PDF entirely — we only show editable text on a
-          // blank white page, so there's no doubled "original + editing" view.
-          const pdfCtx = pdfCanvas.getContext("2d")!;
-          pdfCtx.fillStyle = "#ffffff";
-          pdfCtx.fillRect(0, 0, width, height);
-
           const overlay = document.createElement("canvas");
           overlay.width = width;
           overlay.height = height;
@@ -84,22 +78,35 @@ export function EditorView({ file, onBack }: Props) {
           const pageData = await extractPageBlocks(pdf, i);
           pagesDataRef.current.push(pageData);
 
+          const pdfCtx = pdfCanvas.getContext("2d")!;
+          // Snapshot original PDF pixels so we can restore a region after edits
+          // are reverted (e.g. user types nothing new).
+          const originalImage = pdfCtx.getImageData(0, 0, width, height);
+
           for (const b of pageData.blocks) {
             const fv = fontVariant(b.font);
             const fontPx = b.size * RENDER_SCALE;
-            // Fabric renders text baseline at roughly top + fontSize * 0.79
-            // (with lineHeight 1). Place box so baseline == PDF baseline.
-            const BASELINE_RATIO = 0.79;
+            // baselineY is in top-left point coords. For ascent ≈ fontSize, the
+            // glyph-box top is baseline - fontSize. Fabric draws the first line
+            // with baseline at top + fontSize (lineHeight 1, no internal lead),
+            // so set top = baselinePx - fontPx.
             const baselinePx = b.baselineY * RENDER_SCALE;
-            const topPx = baselinePx - fontPx * BASELINE_RATIO;
+            const topPx = baselinePx - fontPx;
+            const leftPx = b.x * RENDER_SCALE;
+            const boxW = Math.max(b.w * RENDER_SCALE + 4, 12);
+            const boxH = fontPx * 1.25;
+
             const tb = new fabric.IText(b.text, {
-              left: b.x * RENDER_SCALE,
+              left: leftPx,
               top: topPx,
               fontSize: fontPx,
               fontFamily: mapFont(b.font),
               fontWeight: fv.bold ? "700" : "400",
               fontStyle: fv.italic ? "italic" : "normal",
               fill: b.color || "#111827",
+              // Invisible until the user interacts — preserves original
+              // glyphs (color, RTL Arabic shaping, line boxes) underneath.
+              opacity: 0,
               editable: true,
               hasControls: false,
               hasBorders: false,
@@ -110,10 +117,43 @@ export function EditorView({ file, onBack }: Props) {
             });
             (tb as unknown as { _blockId: string })._blockId = b.id;
 
+            const eraseUnder = () => {
+              pdfCtx.fillStyle = "#ffffff";
+              pdfCtx.fillRect(leftPx - 2, topPx - 2, boxW + 4, boxH + 4);
+            };
+            const restoreUnder = () => {
+              pdfCtx.putImageData(
+                originalImage,
+                0, 0,
+                Math.max(0, leftPx - 2),
+                Math.max(0, topPx - 2),
+                boxW + 4,
+                boxH + 4,
+              );
+            };
+
+            tb.on("mousedown", () => {
+              eraseUnder();
+              tb.set({ opacity: 1 });
+              fc.requestRenderAll();
+            });
+            tb.on("editing:entered", () => {
+              eraseUnder();
+              tb.set({ opacity: 1 });
+              fc.requestRenderAll();
+            });
             tb.on("editing:exited", () => {
               const text = tb.text || "";
-              if (text !== b.text) editsRef.current[b.id] = text;
-              else delete editsRef.current[b.id];
+              if (text !== b.text) {
+                editsRef.current[b.id] = text;
+                // Keep edit visible; original stays erased.
+                tb.set({ opacity: 1 });
+              } else {
+                delete editsRef.current[b.id];
+                restoreUnder();
+                tb.set({ opacity: 0 });
+              }
+              fc.requestRenderAll();
             });
             tb.on("changed", () => {
               const text = tb.text || "";
