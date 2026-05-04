@@ -64,9 +64,11 @@ export async function extractPageBlocks(
   const page = await pdf.getPage(pageNumber);
   const viewport = page.getViewport({ scale: 1 }); // 1 = PDF points
   const content = await page.getTextContent();
+  const textColors = await extractTextColors(page);
 
   const blocks: ExtractedBlock[] = [];
   let i = 0;
+  let colorIndex = 0;
   for (const item of content.items as Array<{
     str: string;
     transform: number[];
