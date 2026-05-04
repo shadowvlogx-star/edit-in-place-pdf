@@ -57,6 +57,17 @@ function variant(fontHint: string): { bold: boolean; italic: boolean } {
   };
 }
 
+function cssHexToRgb(color: string) {
+  const hex = /^#?([0-9a-f]{6})$/i.exec(color || "");
+  if (!hex) return rgb(0.07, 0.09, 0.15);
+  const value = hex[1];
+  return rgb(
+    parseInt(value.slice(0, 2), 16) / 255,
+    parseInt(value.slice(2, 4), 16) / 255,
+    parseInt(value.slice(4, 6), 16) / 255,
+  );
+}
+
 async function getFont(
   doc: PDFDocument,
   cache: Map<string, PDFFont>,
@@ -146,14 +157,14 @@ export async function buildEditedPdf(
       // Baseline position: top-left of block -> baseline ≈ top + ascent
       const ascent = font.heightAtSize(size, { descender: false });
       const textX = block.x;
-      const textY = pageHeightPt - block.y - ascent;
+      const textY = pageHeightPt - block.baselineY;
 
       page.drawText(newText, {
         x: textX,
         y: textY,
         size,
         font,
-        color: rgb(0.07, 0.09, 0.15),
+        color: cssHexToRgb(block.color),
       });
     }
   }
