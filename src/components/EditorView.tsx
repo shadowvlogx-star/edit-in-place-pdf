@@ -352,6 +352,23 @@ function fontVariant(name: string): { bold: boolean; italic: boolean } {
   };
 }
 
+function beginEditingText(canvas: fabric.Canvas, text: fabric.IText) {
+  canvas.setActiveObject(text);
+  text.set({ opacity: 1 });
+  if (!text.isEditing) {
+    text.enterEditing();
+    text.selectAll();
+  }
+  canvas.requestRenderAll();
+}
+
+function finishActiveEditing(canvas: fabric.Canvas) {
+  const active = canvas.getActiveObject();
+  if (active && (active as fabric.IText).isEditing) (active as fabric.IText).exitEditing();
+  canvas.discardActiveObject();
+  canvas.requestRenderAll();
+}
+
 
 function paintAverageBackground(
   ctx: CanvasRenderingContext2D,
