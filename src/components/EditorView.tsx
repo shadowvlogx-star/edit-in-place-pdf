@@ -113,9 +113,9 @@ export function EditorView({ file, onBack }: Props) {
               fontWeight: fv.bold ? "700" : "400",
               fontStyle: fv.italic ? "italic" : "normal",
               fill: b.color || "#111827",
-              // Invisible until the user interacts — preserves original
-              // glyphs (color, RTL Arabic shaping, line boxes) underneath.
-              opacity: 0,
+              // FIX: Use 0.01 instead of 0 so Fabric.js still detects clicks
+              // while keeping text virtually invisible until edited
+              opacity: 0.01,
               editable: true,
               hasControls: false,
               hasBorders: false,
@@ -166,7 +166,7 @@ export function EditorView({ file, onBack }: Props) {
               } else {
                 delete editsRef.current[b.id];
                 restoreUnder();
-                tb.set({ opacity: 0 });
+                tb.set({ opacity: 0.01 }); // FIX: Reset to 0.01 instead of 0
               }
               fc.requestRenderAll();
             });
@@ -185,15 +185,33 @@ export function EditorView({ file, onBack }: Props) {
             });
           }
 
+          // FIXED: Improved click handler that properly detects invisible text objects
           fc.on("mouse:down", (event) => {
             const pointer = fc.getPointer(event.e);
             const targetText = event.target instanceof fabric.IText ? event.target : null;
 
             if (targetText?.isEditing) return;
 
-            const hitText =
-              targetText ||
-              [...editableTextEntries]
+            // Try direct fabric object detection first
+            let hitText: fabric.IText | undefined = targetText || undefined;
+            
+            // If direct detection failed, search all objects manually
+            if (!hitText) {
+              hitText = fc.getObjects().find(obj => {
+                if (!(obj instanceof fabric.IText)) return false;
+                const bounds = obj.getBoundingRect();
+                return (
+                  pointer.x >= bounds.left &&
+                  pointer.x <= bounds.left + bounds.width &&
+                  pointer.y >= bounds.top &&
+                  pointer.y <= bounds.top + bounds.height
+                );
+              }) as fabric.IText | undefined;
+            }
+            
+            // Fallback to coordinate-based check using editableTextEntries
+            if (!hitText) {
+              hitText = [...editableTextEntries]
                 .reverse()
                 .find(
                   (entry) =>
@@ -202,6 +220,7 @@ export function EditorView({ file, onBack }: Props) {
                     pointer.y >= entry.top &&
                     pointer.y <= entry.bottom,
                 )?.text;
+            }
 
             if (hitText) {
               beginEditingText(fc, hitText);
@@ -368,7 +387,6 @@ function finishActiveEditing(canvas: fabric.Canvas) {
   canvas.discardActiveObject();
   canvas.requestRenderAll();
 }
-
 
 function paintAverageBackground(
   ctx: CanvasRenderingContext2D,
