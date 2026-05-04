@@ -1,6 +1,6 @@
 // Thin wrapper around pdfjs-dist for rendering pages and extracting text blocks.
 import * as pdfjsLib from "pdfjs-dist";
-import { OPS } from "pdfjs-dist";
+import { OPS, type PDFPageProxy } from "pdfjs-dist";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 import workerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url";
@@ -130,7 +130,7 @@ export async function extractPageBlocks(
 }
 
 
-async function extractTextColors(page: Awaited<ReturnType<Awaited<ReturnType<typeof loadPdf>>["getPage"]>>): Promise<string[]> {
+async function extractTextColors(page: PDFPageProxy): Promise<string[]> {
   const operatorList = await page.getOperatorList();
   const colors: string[] = [];
   let fill = "#111827";
