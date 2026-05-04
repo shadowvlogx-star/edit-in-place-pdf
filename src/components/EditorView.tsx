@@ -22,6 +22,14 @@ interface PageRef {
   fabricCanvas: fabric.Canvas;
 }
 
+interface EditableTextEntry {
+  text: fabric.IText;
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
 export function EditorView({ file, onBack }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const pageRefsRef = useRef<PageRef[]>([]);
@@ -82,6 +90,7 @@ export function EditorView({ file, onBack }: Props) {
           // Snapshot original PDF pixels so we can restore a region after edits
           // are reverted (e.g. user types nothing new).
           const originalImage = pdfCtx.getImageData(0, 0, width, height);
+          const editableTextEntries: EditableTextEntry[] = [];
 
           for (const b of pageData.blocks) {
             const fv = fontVariant(b.font);
@@ -167,7 +176,40 @@ export function EditorView({ file, onBack }: Props) {
               else delete editsRef.current[b.id];
             });
             fc.add(tb);
+            editableTextEntries.push({
+              text: tb,
+              left: leftPx - 6,
+              top: topPx - 6,
+              right: leftPx + boxW + 6,
+              bottom: topPx + boxH + 6,
+            });
           }
+
+          fc.on("mouse:down", (event) => {
+            const pointer = fc.getPointer(event.e);
+            const targetText = event.target instanceof fabric.IText ? event.target : null;
+
+            if (targetText?.isEditing) return;
+
+            const hitText =
+              targetText ||
+              [...editableTextEntries]
+                .reverse()
+                .find(
+                  (entry) =>
+                    pointer.x >= entry.left &&
+                    pointer.x <= entry.right &&
+                    pointer.y >= entry.top &&
+                    pointer.y <= entry.bottom,
+                )?.text;
+
+            if (hitText) {
+              beginEditingText(fc, hitText);
+              return;
+            }
+
+            finishActiveEditing(fc);
+          });
 
           pageRefsRef.current.push({ pageNumber: i, fabricCanvas: fc });
         }
@@ -178,9 +220,7 @@ export function EditorView({ file, onBack }: Props) {
           if (insideOverlay) return;
           for (const p of pageRefsRef.current) {
             const active = p.fabricCanvas.getActiveObject();
-            if (active && (active as fabric.Textbox).isEditing) {
-              (active as fabric.Textbox).exitEditing();
-            }
+            if (active && (active as fabric.IText).isEditing) (active as fabric.IText).exitEditing();
             p.fabricCanvas.discardActiveObject();
             p.fabricCanvas.requestRenderAll();
           }
@@ -310,6 +350,23 @@ function fontVariant(name: string): { bold: boolean; italic: boolean } {
       /-it\b/.test(n) ||
       /\bit\b/.test(n),
   };
+}
+
+function beginEditingText(canvas: fabric.Canvas, text: fabric.IText) {
+  canvas.setActiveObject(text);
+  text.set({ opacity: 1 });
+  if (!text.isEditing) {
+    text.enterEditing();
+    text.selectAll();
+  }
+  canvas.requestRenderAll();
+}
+
+function finishActiveEditing(canvas: fabric.Canvas) {
+  const active = canvas.getActiveObject();
+  if (active && (active as fabric.IText).isEditing) (active as fabric.IText).exitEditing();
+  canvas.discardActiveObject();
+  canvas.requestRenderAll();
 }
 
 
