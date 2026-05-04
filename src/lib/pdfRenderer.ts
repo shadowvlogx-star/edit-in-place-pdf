@@ -1,5 +1,6 @@
 // Thin wrapper around pdfjs-dist for rendering pages and extracting text blocks.
 import * as pdfjsLib from "pdfjs-dist";
+import { OPS } from "pdfjs-dist";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 import workerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url";
@@ -114,7 +115,7 @@ export async function extractPageBlocks(
       text,
       font,
       size,
-      color: "#111827",
+      color: textColors[colorIndex++] || "#111827",
     });
   }
 
@@ -124,4 +125,57 @@ export async function extractPageBlocks(
     height: viewport.height,
     blocks,
   };
+}
+
+
+async function extractTextColors(page: Awaited<ReturnType<Awaited<ReturnType<typeof loadPdf>>["getPage"]>>): Promise<string[]> {
+  const operatorList = await page.getOperatorList();
+  const colors: string[] = [];
+  let fill = "#111827";
+
+  for (let i = 0; i < operatorList.fnArray.length; i++) {
+    const fn = operatorList.fnArray[i];
+    const args = operatorList.argsArray[i] || [];
+
+    if (fn === OPS.setFillRGBColor) {
+      fill = rgbToHex(args[0], args[1], args[2]);
+    } else if (fn === OPS.setFillGray) {
+      fill = rgbToHex(args[0], args[0], args[0]);
+    } else if (fn === OPS.setFillCMYKColor) {
+      fill = cmykToHex(args[0], args[1], args[2], args[3]);
+    } else if (fn === OPS.showText || fn === OPS.showSpacedText || fn === OPS.nextLineShowText || fn === OPS.nextLineSetSpacingShowText) {
+      const text = extractOperatorText(args);
+      if (text.trim()) colors.push(fill);
+    }
+  }
+
+  return colors;
+}
+
+function extractOperatorText(args: unknown[]): string {
+  const glyphs = Array.isArray(args[0]) ? args[0] : args;
+  return glyphs
+    .map((glyph) => {
+      if (typeof glyph === "string") return glyph;
+      if (typeof glyph === "number") return "";
+      if (glyph && typeof glyph === "object" && "unicode" in glyph) {
+        return String((glyph as { unicode?: string }).unicode || "");
+      }
+      return "";
+    })
+    .join("");
+}
+
+function rgbToHex(r = 0, g = 0, b = 0): string {
+  const to255 = (value: number) => {
+    const channel = value <= 1 ? value * 255 : value;
+    return Math.max(0, Math.min(255, Math.round(channel)));
+  };
+  return `#${[to255(r), to255(g), to255(b)]
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("")}`;
+}
+
+function cmykToHex(c = 0, m = 0, y = 0, k = 0): string {
+  return rgbToHex(1 - Math.min(1, c + k), 1 - Math.min(1, m + k), 1 - Math.min(1, y + k));
 }
