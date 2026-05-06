@@ -81,7 +81,19 @@ export function EditorView({ file, onBack }: Props) {
             height,
             backgroundColor: "transparent",
             selection: false,
+            preserveObjectStacking: true,
           });
+          // Fabric wraps the overlay in a .canvas-container div which by
+          // default is position:relative and stacks BELOW the pdf canvas,
+          // creating an empty duplicate page. Force it to overlay the PDF.
+          const fabricWrapper = overlay.parentElement as HTMLElement | null;
+          if (fabricWrapper) {
+            fabricWrapper.style.position = "absolute";
+            fabricWrapper.style.top = "0";
+            fabricWrapper.style.left = "0";
+            fabricWrapper.style.width = `${width}px`;
+            fabricWrapper.style.height = `${height}px`;
+          }
 
           const pageData = await extractPageBlocks(pdf, i);
           pagesDataRef.current.push(pageData);
