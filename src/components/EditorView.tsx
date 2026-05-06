@@ -113,16 +113,19 @@ export function EditorView({ file, onBack }: Props) {
               fontWeight: fv.bold ? "700" : "400",
               fontStyle: fv.italic ? "italic" : "normal",
               fill: b.color || "#111827",
-              // FIX: Use 0.01 instead of 0 so Fabric.js still detects clicks
-              // while keeping text virtually invisible until edited
               opacity: 0.01,
               editable: true,
-              hasControls: false,
-              hasBorders: false,
+              hasControls: true,
+              hasBorders: true,
+              borderColor: "#3b82f6",
+              cornerColor: "#3b82f6",
+              cornerSize: 8,
+              transparentCorners: false,
               lineHeight: 1,
-              lockMovementX: true,
-              lockMovementY: true,
-              padding: 0,
+              lockMovementX: false,
+              lockMovementY: false,
+              padding: 4,
+              objectCaching: false,
             });
             (tb as unknown as { _blockId: string })._blockId = b.id;
 
@@ -147,7 +150,7 @@ export function EditorView({ file, onBack }: Props) {
               );
             };
 
-            tb.on("mousedown", () => {
+            const activate = () => {
               eraseUnder();
               tb.set({ opacity: 1 });
               fc.setActiveObject(tb);
@@ -156,7 +159,10 @@ export function EditorView({ file, onBack }: Props) {
                 tb.selectAll();
               }
               fc.requestRenderAll();
-            });
+            };
+
+            tb.on("mousedown", activate);
+            tb.on("mousedblclick", activate);
             tb.on("editing:entered", () => {
               eraseUnder();
               tb.set({ opacity: 1 });
@@ -166,12 +172,11 @@ export function EditorView({ file, onBack }: Props) {
               const text = tb.text || "";
               if (text !== b.text) {
                 editsRef.current[b.id] = text;
-                // Keep edit visible; original stays erased.
                 tb.set({ opacity: 1 });
               } else {
                 delete editsRef.current[b.id];
                 restoreUnder();
-                tb.set({ opacity: 0.01 }); // FIX: Reset to 0.01 instead of 0
+                tb.set({ opacity: 0.01 });
               }
               fc.requestRenderAll();
             });
@@ -190,49 +195,37 @@ export function EditorView({ file, onBack }: Props) {
             });
           }
 
-          // FIXED: Improved click handler that properly detects invisible text objects
+          // Empty-area click: exit edit OR add a new draggable text box.
           fc.on("mouse:down", (event) => {
-            const pointer = fc.getPointer(event.e);
-            const targetText = event.target instanceof fabric.IText ? event.target : null;
-
-            if (targetText?.isEditing) return;
-
-            // Try direct fabric object detection first
-            let hitText: fabric.IText | undefined = targetText || undefined;
-            
-            // If direct detection failed, search all objects manually
-            if (!hitText) {
-              hitText = fc.getObjects().find(obj => {
-                if (!(obj instanceof fabric.IText)) return false;
-                const bounds = obj.getBoundingRect();
-                return (
-                  pointer.x >= bounds.left &&
-                  pointer.x <= bounds.left + bounds.width &&
-                  pointer.y >= bounds.top &&
-                  pointer.y <= bounds.top + bounds.height
-                );
-              }) as fabric.IText | undefined;
-            }
-            
-            // Fallback to coordinate-based check using editableTextEntries
-            if (!hitText) {
-              hitText = [...editableTextEntries]
-                .reverse()
-                .find(
-                  (entry) =>
-                    pointer.x >= entry.left &&
-                    pointer.x <= entry.right &&
-                    pointer.y >= entry.top &&
-                    pointer.y <= entry.bottom,
-                )?.text;
-            }
-
-            if (hitText) {
-              beginEditingText(fc, hitText);
+            if (event.target) return;
+            const active = fc.getActiveObject() as fabric.IText | null;
+            if (active && active.isEditing) {
+              active.exitEditing();
+              fc.discardActiveObject();
+              fc.requestRenderAll();
               return;
             }
-
-            finishActiveEditing(fc);
+            const pointer = fc.getPointer(event.e);
+            const newText = new fabric.IText("New text", {
+              left: pointer.x,
+              top: pointer.y,
+              fontSize: 18 * RENDER_SCALE,
+              fontFamily: 'Inter, Helvetica, Arial, sans-serif',
+              fill: "#111827",
+              editable: true,
+              hasControls: true,
+              hasBorders: true,
+              borderColor: "#3b82f6",
+              cornerColor: "#3b82f6",
+              cornerSize: 8,
+              transparentCorners: false,
+              padding: 4,
+            });
+            fc.add(newText);
+            fc.setActiveObject(newText);
+            newText.enterEditing();
+            newText.selectAll();
+            fc.requestRenderAll();
           });
 
           pageRefsRef.current.push({ pageNumber: i, fabricCanvas: fc });
