@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as fabric from "fabric";
-import { Download, ArrowLeft, Loader2 } from "lucide-react";
+import { Download, ArrowLeft, Loader2, Plus, Minus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import {
@@ -22,22 +22,17 @@ interface PageRef {
   fabricCanvas: fabric.Canvas;
 }
 
-interface EditableTextEntry {
-  text: fabric.IText;
-  left: number;
-  top: number;
-  right: number;
-  bottom: number;
-}
-
 export function EditorView({ file, onBack }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const pageRefsRef = useRef<PageRef[]>([]);
   const editsRef = useRef<EditMap>({});
   const pagesDataRef = useRef<ExtractedPage[]>([]);
   const originalBytesRef = useRef<ArrayBuffer | null>(null);
+  const activeTextRef = useRef<fabric.IText | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [, force] = useState(0);
+  const refresh = () => force((n) => n + 1);
 
   useEffect(() => {
     let cancelled = false;
@@ -45,7 +40,6 @@ export function EditorView({ file, onBack }: Props) {
       try {
         setLoading(true);
         const buf = await file.arrayBuffer();
-        // Keep a pristine copy for pdf-lib (pdf.js may detach buffers).
         originalBytesRef.current = buf.slice(0);
         const pdf = await loadPdf(buf);
 
@@ -83,9 +77,6 @@ export function EditorView({ file, onBack }: Props) {
             selection: false,
             preserveObjectStacking: true,
           });
-          // Fabric wraps the overlay in a .canvas-container div which by
-          // default is position:relative and stacks BELOW the pdf canvas,
-          // creating an empty duplicate page. Force it to overlay the PDF.
           const fabricWrapper = overlay.parentElement as HTMLElement | null;
           if (fabricWrapper) {
             fabricWrapper.style.position = "absolute";
@@ -98,123 +89,74 @@ export function EditorView({ file, onBack }: Props) {
           const pageData = await extractPageBlocks(pdf, i);
           pagesDataRef.current.push(pageData);
 
-          const pdfCtx = pdfCanvas.getContext("2d")!;
-          // Snapshot original PDF pixels so we can restore a region after edits
-          // are reverted (e.g. user types nothing new).
-          const originalImage = pdfCtx.getImageData(0, 0, width, height);
-          const editableTextEntries: EditableTextEntry[] = [];
-
           for (const b of pageData.blocks) {
             const fv = fontVariant(b.font);
             const fontPx = b.size * RENDER_SCALE;
-            // baselineY is in top-left point coords. For ascent ≈ fontSize, the
-            // glyph-box top is baseline - fontSize. Fabric draws the first line
-            // with baseline at top + fontSize (lineHeight 1, no internal lead),
-            // so set top = baselinePx - fontPx.
             const baselinePx = b.baselineY * RENDER_SCALE;
             const topPx = baselinePx - fontPx * 0.88;
             const leftPx = b.x * RENDER_SCALE;
-            const boxW = Math.max(b.w * RENDER_SCALE + 4, 12);
-            const boxH = fontPx * 1.25;
 
             const tb = new fabric.IText(b.text, {
               left: leftPx,
               top: topPx,
               fontSize: fontPx,
-              fontFamily: mapFont(b.font),
+              fontFamily: mapFont(b.font, fv.bold),
               fontWeight: fv.bold ? "700" : "400",
               fontStyle: fv.italic ? "italic" : "normal",
               fill: b.color || "#111827",
-              opacity: 0.01,
+              // Always fully opaque so the edit text covers the original glyph
+              // exactly — no need to erase the PDF underneath.
+              opacity: 1,
               editable: true,
-              hasControls: true,
-              hasBorders: true,
-              borderColor: "#3b82f6",
-              cornerColor: "#3b82f6",
-              cornerSize: 8,
-              transparentCorners: false,
+              hasControls: false,
+              hasBorders: false,
+              selectionColor: "rgba(59,130,246,0.15)",
+              cursorColor: "#111827",
               lineHeight: 1,
-              lockMovementX: false,
-              lockMovementY: false,
-              padding: 4,
+              padding: 0,
+              backgroundColor: "",
               objectCaching: false,
+              hoverCursor: "text",
             });
             (tb as unknown as { _blockId: string })._blockId = b.id;
+            (tb as unknown as { _origBold: boolean })._origBold = fv.bold;
+            (tb as unknown as { _origItalic: boolean })._origItalic = fv.italic;
 
-            const eraseUnder = () => {
-              pdfCtx.clearRect(
-                Math.max(0, leftPx - 2),
-                Math.max(0, topPx - 2),
-                boxW + 4,
-                boxH + 4,
-              );
-            };
-            const restoreUnder = () => {
-              pdfCtx.putImageData(
-                originalImage,
-                0, 0,
-                Math.max(0, leftPx - 2),
-                Math.max(0, topPx - 2),
-                boxW + 4,
-                boxH + 4,
-              );
-            };
-
-            const activate = () => {
-              eraseUnder();
-              tb.set({ opacity: 1 });
-              fc.setActiveObject(tb);
-              if (!tb.isEditing) {
-                tb.enterEditing();
-                tb.selectAll();
-              }
-              fc.requestRenderAll();
-            };
-
-            tb.on("mousedown", activate);
-            tb.on("mousedblclick", activate);
-            tb.on("editing:entered", () => {
-              eraseUnder();
-              tb.set({ opacity: 1 });
-              fc.requestRenderAll();
-            });
-            tb.on("editing:exited", () => {
-              const text = tb.text || "";
-              if (text !== b.text) {
-                editsRef.current[b.id] = text;
-                tb.set({ opacity: 1 });
-              } else {
-                delete editsRef.current[b.id];
-                restoreUnder();
-                tb.set({ opacity: 0.01 });
-              }
-              fc.requestRenderAll();
-            });
             tb.on("changed", () => {
               const text = tb.text || "";
               if (text !== b.text) editsRef.current[b.id] = text;
               else delete editsRef.current[b.id];
             });
-            fc.add(tb);
-            editableTextEntries.push({
-              text: tb,
-              left: leftPx - 6,
-              top: topPx - 6,
-              right: leftPx + boxW + 6,
-              bottom: topPx + boxH + 6,
+            tb.on("editing:exited", () => {
+              const text = tb.text || "";
+              if (text !== b.text) editsRef.current[b.id] = text;
+              else delete editsRef.current[b.id];
             });
+            tb.on("selected", () => {
+              activeTextRef.current = tb;
+              refresh();
+            });
+            tb.on("deselected", () => {
+              if (activeTextRef.current === tb) activeTextRef.current = null;
+              refresh();
+            });
+            fc.add(tb);
           }
 
-          // Empty-area click: exit edit OR add a new draggable text box.
+          // Single click on empty area => deselect, no edit, no new text.
           fc.on("mouse:down", (event) => {
             if (event.target) return;
             const active = fc.getActiveObject() as fabric.IText | null;
-            if (active && active.isEditing) {
-              active.exitEditing();
-              fc.discardActiveObject();
-              fc.requestRenderAll();
-              return;
-            }
+            if (active?.isEditing) active.exitEditing();
+            fc.discardActiveObject();
+            activeTextRef.current = null;
+            fc.requestRenderAll();
+            refresh();
+          });
+
+          // Double click on empty area => add new editable text there.
+          fc.on("mouse:dblclick", (event) => {
+            if (event.target) return;
             const pointer = fc.getPointer(event.e);
             const newText = new fabric.IText("New text", {
               left: pointer.x,
@@ -223,38 +165,23 @@ export function EditorView({ file, onBack }: Props) {
               fontFamily: 'Inter, Helvetica, Arial, sans-serif',
               fill: "#111827",
               editable: true,
-              hasControls: true,
-              hasBorders: true,
-              borderColor: "#3b82f6",
-              cornerColor: "#3b82f6",
-              cornerSize: 8,
-              transparentCorners: false,
-              padding: 4,
+              hasControls: false,
+              hasBorders: false,
+              padding: 0,
+              backgroundColor: "",
             });
             fc.add(newText);
             fc.setActiveObject(newText);
             newText.enterEditing();
             newText.selectAll();
+            activeTextRef.current = newText;
             fc.requestRenderAll();
+            refresh();
           });
 
           pageRefsRef.current.push({ pageNumber: i, fabricCanvas: fc });
         }
 
-        const handleDocClick = (e: MouseEvent) => {
-          const target = e.target as HTMLElement;
-          const insideOverlay = target.closest("canvas.upper-canvas");
-          if (insideOverlay) return;
-          for (const p of pageRefsRef.current) {
-            const active = p.fabricCanvas.getActiveObject();
-            if (active && (active as fabric.IText).isEditing) (active as fabric.IText).exitEditing();
-            p.fabricCanvas.discardActiveObject();
-            p.fabricCanvas.requestRenderAll();
-          }
-        };
-        document.addEventListener("mousedown", handleDocClick);
-
-        // Delete / Backspace removes the currently selected (non-editing) text.
         const handleKey = (e: KeyboardEvent) => {
           if (e.key !== "Delete" && e.key !== "Backspace") return;
           for (const p of pageRefsRef.current) {
@@ -264,14 +191,15 @@ export function EditorView({ file, onBack }: Props) {
             if (blockId) editsRef.current[blockId] = "";
             p.fabricCanvas.remove(active);
             p.fabricCanvas.discardActiveObject();
+            activeTextRef.current = null;
             p.fabricCanvas.requestRenderAll();
+            refresh();
             e.preventDefault();
             break;
           }
         };
         document.addEventListener("keydown", handleKey);
         (containerRef.current as unknown as { _cleanup?: () => void })._cleanup = () => {
-          document.removeEventListener("mousedown", handleDocClick);
           document.removeEventListener("keydown", handleKey);
         };
       } catch (err) {
@@ -291,6 +219,17 @@ export function EditorView({ file, onBack }: Props) {
     };
   }, [file]);
 
+  const adjustFontSize = (delta: number) => {
+    const t = activeTextRef.current;
+    if (!t) return;
+    const next = Math.max(6, (t.fontSize || 12) + delta);
+    t.set({ fontSize: next });
+    const blockId = (t as unknown as { _blockId?: string })._blockId;
+    if (blockId) editsRef.current[blockId] = t.text || "";
+    t.canvas?.requestRenderAll();
+    refresh();
+  };
+
   const handleDownload = async () => {
     if (!originalBytesRef.current) {
       toast.error("PDF not ready");
@@ -298,11 +237,10 @@ export function EditorView({ file, onBack }: Props) {
     }
     try {
       setSaving(true);
-      // Make sure any in-progress edits are committed.
       for (const p of pageRefsRef.current) {
         const active = p.fabricCanvas.getActiveObject();
-        if (active && (active as fabric.Textbox).isEditing) {
-          (active as fabric.Textbox).exitEditing();
+        if (active && (active as fabric.IText).isEditing) {
+          (active as fabric.IText).exitEditing();
         }
       }
       const blob = await buildEditedPdf(
@@ -325,14 +263,38 @@ export function EditorView({ file, onBack }: Props) {
     }
   };
 
+  const active = activeTextRef.current;
+
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-20 border-b border-border bg-surface/80 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-6 py-3">
           <Button variant="ghost" size="sm" onClick={onBack}>
             <ArrowLeft className="mr-1 h-4 w-4" /> New file
           </Button>
-          <div className="text-sm text-muted-foreground truncate max-w-[40%]">{file.name}</div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              disabled={!active}
+              onClick={() => adjustFontSize(-2)}
+              title="Decrease font size"
+            >
+              <Minus className="h-4 w-4" />
+            </Button>
+            <span className="w-10 text-center text-sm tabular-nums text-muted-foreground">
+              {active ? Math.round((active.fontSize || 0) / RENDER_SCALE) : "–"}
+            </span>
+            <Button
+              variant="outline"
+              size="icon"
+              disabled={!active}
+              onClick={() => adjustFontSize(2)}
+              title="Increase font size"
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          </div>
           <Button onClick={handleDownload} disabled={saving || loading}>
             {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
             Download
@@ -367,10 +329,7 @@ const MONO_HINTS = [
   "liberation mono", "dejavu mono", "cmtt", "andale", "lucida console",
 ];
 
-function mapFont(name: string): string {
-  // `name` is "<cssFamily> <pdfFontName>" — prefer the real CSS family that
-  // pdf.js provides (often the actual embedded font), fall back to a system
-  // stack matching the font's character.
+function mapFont(name: string, bold = false): string {
   const raw = (name || "").trim();
   const cssFamily = raw.split(/\s+/)[0]?.replace(/[",]/g, "") || "";
   const n = normalizeFont(name);
@@ -379,6 +338,10 @@ function mapFont(name: string): string {
     : SERIF_HINTS.some((m) => n.includes(m))
       ? '"Source Serif 4", "Times New Roman", Times, serif'
       : 'Inter, Helvetica, Arial, sans-serif';
+  // For bold variants, skip the embedded css family because it is often a
+  // single-weight subset that cannot render bold — fall back to a system
+  // family that DOES have a bold weight.
+  if (bold) return fallback;
   if (cssFamily && !/^g_d\d+/i.test(cssFamily)) {
     return `"${cssFamily}", ${fallback}`;
   }
@@ -405,59 +368,4 @@ function fontVariant(name: string): { bold: boolean; italic: boolean } {
       /-it\b/.test(n) ||
       /\bit\b/.test(n),
   };
-}
-
-function beginEditingText(canvas: fabric.Canvas, text: fabric.IText) {
-  canvas.setActiveObject(text);
-  text.set({ opacity: 1 });
-  if (!text.isEditing) {
-    text.enterEditing();
-    text.selectAll();
-  }
-  canvas.requestRenderAll();
-}
-
-function finishActiveEditing(canvas: fabric.Canvas) {
-  const active = canvas.getActiveObject();
-  if (active && (active as fabric.IText).isEditing) (active as fabric.IText).exitEditing();
-  canvas.discardActiveObject();
-  canvas.requestRenderAll();
-}
-
-function paintAverageBackground(
-  ctx: CanvasRenderingContext2D,
-  image: ImageData,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-) {
-  const x0 = Math.max(0, Math.floor(x));
-  const y0 = Math.max(0, Math.floor(y));
-  const x1 = Math.min(image.width, Math.ceil(x + w));
-  const y1 = Math.min(image.height, Math.ceil(y + h));
-  const data = image.data;
-  let r = 0;
-  let g = 0;
-  let b = 0;
-  let count = 0;
-
-  // Sample the border around the text box so masks keep colored page areas
-  // instead of forcing every edit area to white.
-  for (let yy = y0; yy < y1; yy++) {
-    for (let xx = x0; xx < x1; xx++) {
-      const nearEdge = yy - y0 < 2 || y1 - yy <= 2 || xx - x0 < 2 || x1 - xx <= 2;
-      if (!nearEdge) continue;
-      const idx = (yy * image.width + xx) * 4;
-      r += data[idx];
-      g += data[idx + 1];
-      b += data[idx + 2];
-      count++;
-    }
-  }
-
-  ctx.fillStyle = count
-    ? `rgb(${Math.round(r / count)}, ${Math.round(g / count)}, ${Math.round(b / count)})`
-    : "#ffffff";
-  ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
 }
