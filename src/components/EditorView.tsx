@@ -142,9 +142,17 @@ export function EditorView({ file, onBack }: Props) {
             (tb as unknown as { _blockId: string })._blockId = b.id;
 
             const eraseUnder = () => {
-              paintAverageBackground(
-                pdfCtx,
+              pdfCtx.clearRect(
+                Math.max(0, leftPx - 2),
+                Math.max(0, topPx - 2),
+                boxW + 4,
+                boxH + 4,
+              );
+            };
+            const restoreUnder = () => {
+              pdfCtx.putImageData(
                 originalImage,
+                0, 0,
                 Math.max(0, leftPx - 2),
                 Math.max(0, topPx - 2),
                 boxW + 4,
