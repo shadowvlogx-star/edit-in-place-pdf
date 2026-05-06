@@ -351,12 +351,21 @@ const MONO_HINTS = [
 ];
 
 function mapFont(name: string): string {
+  // `name` is "<cssFamily> <pdfFontName>" — prefer the real CSS family that
+  // pdf.js provides (often the actual embedded font), fall back to a system
+  // stack matching the font's character.
+  const raw = (name || "").trim();
+  const cssFamily = raw.split(/\s+/)[0]?.replace(/[",]/g, "") || "";
   const n = normalizeFont(name);
-  if (MONO_HINTS.some((m) => n.includes(m)))
-    return '"JetBrains Mono", "Courier New", Courier, monospace';
-  if (SERIF_HINTS.some((m) => n.includes(m)))
-    return '"Source Serif 4", "Times New Roman", Times, serif';
-  return 'Inter, Helvetica, Arial, sans-serif';
+  const fallback = MONO_HINTS.some((m) => n.includes(m))
+    ? '"JetBrains Mono", "Courier New", Courier, monospace'
+    : SERIF_HINTS.some((m) => n.includes(m))
+      ? '"Source Serif 4", "Times New Roman", Times, serif'
+      : 'Inter, Helvetica, Arial, sans-serif';
+  if (cssFamily && !/^g_d\d+/i.test(cssFamily)) {
+    return `"${cssFamily}", ${fallback}`;
+  }
+  return fallback;
 }
 
 function fontVariant(name: string): { bold: boolean; italic: boolean } {
