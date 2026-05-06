@@ -150,6 +150,11 @@ export function EditorView({ file, onBack }: Props) {
             tb.on("mousedown", () => {
               eraseUnder();
               tb.set({ opacity: 1 });
+              fc.setActiveObject(tb);
+              if (!tb.isEditing) {
+                tb.enterEditing();
+                tb.selectAll();
+              }
               fc.requestRenderAll();
             });
             tb.on("editing:entered", () => {
