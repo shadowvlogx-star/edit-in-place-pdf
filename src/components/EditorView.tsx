@@ -142,9 +142,7 @@ export function EditorView({ file, onBack }: Props) {
             (tb as unknown as { _blockId: string })._blockId = b.id;
 
             const eraseUnder = () => {
-              paintAverageBackground(
-                pdfCtx,
-                originalImage,
+              pdfCtx.clearRect(
                 Math.max(0, leftPx - 2),
                 Math.max(0, topPx - 2),
                 boxW + 4,
@@ -255,8 +253,27 @@ export function EditorView({ file, onBack }: Props) {
           }
         };
         document.addEventListener("mousedown", handleDocClick);
-        (containerRef.current as unknown as { _cleanup?: () => void })._cleanup = () =>
+
+        // Delete / Backspace removes the currently selected (non-editing) text.
+        const handleKey = (e: KeyboardEvent) => {
+          if (e.key !== "Delete" && e.key !== "Backspace") return;
+          for (const p of pageRefsRef.current) {
+            const active = p.fabricCanvas.getActiveObject() as fabric.IText | null;
+            if (!active || active.isEditing) continue;
+            const blockId = (active as unknown as { _blockId?: string })._blockId;
+            if (blockId) editsRef.current[blockId] = "";
+            p.fabricCanvas.remove(active);
+            p.fabricCanvas.discardActiveObject();
+            p.fabricCanvas.requestRenderAll();
+            e.preventDefault();
+            break;
+          }
+        };
+        document.addEventListener("keydown", handleKey);
+        (containerRef.current as unknown as { _cleanup?: () => void })._cleanup = () => {
           document.removeEventListener("mousedown", handleDocClick);
+          document.removeEventListener("keydown", handleKey);
+        };
       } catch (err) {
         console.error(err);
         toast.error("Failed to load PDF");
@@ -351,12 +368,21 @@ const MONO_HINTS = [
 ];
 
 function mapFont(name: string): string {
+  // `name` is "<cssFamily> <pdfFontName>" — prefer the real CSS family that
+  // pdf.js provides (often the actual embedded font), fall back to a system
+  // stack matching the font's character.
+  const raw = (name || "").trim();
+  const cssFamily = raw.split(/\s+/)[0]?.replace(/[",]/g, "") || "";
   const n = normalizeFont(name);
-  if (MONO_HINTS.some((m) => n.includes(m)))
-    return '"JetBrains Mono", "Courier New", Courier, monospace';
-  if (SERIF_HINTS.some((m) => n.includes(m)))
-    return '"Source Serif 4", "Times New Roman", Times, serif';
-  return 'Inter, Helvetica, Arial, sans-serif';
+  const fallback = MONO_HINTS.some((m) => n.includes(m))
+    ? '"JetBrains Mono", "Courier New", Courier, monospace'
+    : SERIF_HINTS.some((m) => n.includes(m))
+      ? '"Source Serif 4", "Times New Roman", Times, serif'
+      : 'Inter, Helvetica, Arial, sans-serif';
+  if (cssFamily && !/^g_d\d+/i.test(cssFamily)) {
+    return `"${cssFamily}", ${fallback}`;
+  }
+  return fallback;
 }
 
 function fontVariant(name: string): { bold: boolean; italic: boolean } {
