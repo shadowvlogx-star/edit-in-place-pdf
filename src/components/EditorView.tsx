@@ -253,8 +253,27 @@ export function EditorView({ file, onBack }: Props) {
           }
         };
         document.addEventListener("mousedown", handleDocClick);
-        (containerRef.current as unknown as { _cleanup?: () => void })._cleanup = () =>
+
+        // Delete / Backspace removes the currently selected (non-editing) text.
+        const handleKey = (e: KeyboardEvent) => {
+          if (e.key !== "Delete" && e.key !== "Backspace") return;
+          for (const p of pageRefsRef.current) {
+            const active = p.fabricCanvas.getActiveObject() as fabric.IText | null;
+            if (!active || active.isEditing) continue;
+            const blockId = (active as unknown as { _blockId?: string })._blockId;
+            if (blockId) editsRef.current[blockId] = "";
+            p.fabricCanvas.remove(active);
+            p.fabricCanvas.discardActiveObject();
+            p.fabricCanvas.requestRenderAll();
+            e.preventDefault();
+            break;
+          }
+        };
+        document.addEventListener("keydown", handleKey);
+        (containerRef.current as unknown as { _cleanup?: () => void })._cleanup = () => {
           document.removeEventListener("mousedown", handleDocClick);
+          document.removeEventListener("keydown", handleKey);
+        };
       } catch (err) {
         console.error(err);
         toast.error("Failed to load PDF");
