@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import { FileUp, FileText } from "lucide-react";
+import { FileUp, FileText, Sparkles, Type, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -25,25 +25,46 @@ export function UploadScreen({ onFile }: Props) {
   );
 
   return (
-    <main
-      className="min-h-screen flex items-center justify-center px-6"
-      style={{ backgroundImage: "var(--gradient-hero)" }}
-    >
-      <div className="w-full max-w-2xl text-center">
-        <div className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-3 py-1 text-xs font-medium text-muted-foreground mb-6">
-          <FileText className="h-3.5 w-3.5" />
-          PDF Editor
+    <main className="min-h-screen bg-[#0A0B0F] text-white relative overflow-hidden">
+      {/* Ambient glow */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(900px 500px at 50% -10%, rgba(59,130,246,0.18), transparent 60%), radial-gradient(700px 400px at 80% 100%, rgba(99,102,241,0.10), transparent 60%)",
+        }}
+      />
+
+      {/* Top brand bar */}
+      <header className="relative z-10 mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
+        <div className="flex items-center gap-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 shadow-[0_0_20px_rgba(59,130,246,0.5)]">
+            <FileText className="h-4 w-4 text-white" />
+          </div>
+          <span className="text-sm font-semibold tracking-tight">
+            PDFEdit <span className="text-blue-400">Pro</span>
+          </span>
         </div>
-        <h1 className="text-4xl md:text-5xl font-semibold tracking-tight text-foreground mb-3">
-          Edit your PDF in place
+        <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/70 backdrop-blur">
+          <Sparkles className="h-3 w-3 text-blue-400" /> Premium PDF Editor
+        </span>
+      </header>
+
+      <section className="relative z-10 mx-auto max-w-3xl px-6 pt-10 pb-20 text-center">
+        <h1 className="text-4xl md:text-6xl font-semibold tracking-tight leading-[1.05] bg-gradient-to-b from-white to-white/60 bg-clip-text text-transparent">
+          Edit PDFs like a design file
         </h1>
-        <p className="text-muted-foreground mb-10">
-          Upload, click any text to edit, download. No accounts. No fuss.
+        <p className="mt-5 text-base md:text-lg text-white/60 max-w-2xl mx-auto">
+          Click any word, number, or field and edit it directly while preserving the exact font,
+          size, color, and layout of the original document.
         </p>
 
-        <button
-          type="button"
+        <div
+          role="button"
+          tabIndex={0}
           onClick={() => inputRef.current?.click()}
+          onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && inputRef.current?.click()}
           onDragOver={(e) => {
             e.preventDefault();
             setDragging(true);
@@ -55,17 +76,18 @@ export function UploadScreen({ onFile }: Props) {
             handle(e.dataTransfer.files?.[0]);
           }}
           className={cn(
-            "group w-full rounded-2xl border-2 border-dashed bg-surface p-12 transition-smooth",
-            "hover:border-brand hover:shadow-elevated",
-            dragging ? "border-brand bg-brand/5 shadow-elevated" : "border-border",
+            "group mt-12 mx-auto w-full rounded-2xl border border-dashed p-10 cursor-pointer transition-all backdrop-blur",
+            "bg-white/[0.03] hover:bg-white/[0.05]",
+            dragging
+              ? "border-blue-400/70 shadow-[0_0_60px_-10px_rgba(59,130,246,0.6)]"
+              : "border-white/15 hover:border-blue-400/50",
           )}
-          style={{ boxShadow: dragging ? "var(--shadow-elevated)" : "var(--shadow-soft)" }}
         >
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-brand/10 text-brand">
-            <FileUp className="h-7 w-7" />
+          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500/20 to-indigo-500/10 border border-blue-400/30">
+            <FileUp className="h-7 w-7 text-blue-400" />
           </div>
-          <p className="text-base font-medium text-foreground">Drag & drop your PDF here</p>
-          <p className="mt-1 text-sm text-muted-foreground">or click to browse — Upload Only PDF</p>
+          <p className="text-lg font-medium">Drop your PDF here</p>
+          <p className="mt-1 text-sm text-white/50">or click to browse — PDF files only</p>
           <input
             ref={inputRef}
             type="file"
@@ -73,10 +95,41 @@ export function UploadScreen({ onFile }: Props) {
             className="hidden"
             onChange={(e) => handle(e.target.files?.[0])}
           />
-        </button>
+        </div>
 
-        {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
-      </div>
+        {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
+
+        <div className="mt-14 grid grid-cols-1 sm:grid-cols-3 gap-4 text-left">
+          {[
+            {
+              icon: <Type className="h-4 w-4 text-blue-400" />,
+              title: "True edit-in-place",
+              desc: "Click any text and type. No reflow, no layout shifts.",
+            },
+            {
+              icon: <Sparkles className="h-4 w-4 text-blue-400" />,
+              title: "Font-accurate",
+              desc: "Preserves original fonts, sizes, weights, and colors.",
+            },
+            {
+              icon: <Download className="h-4 w-4 text-blue-400" />,
+              title: "Instant download",
+              desc: "Export a clean PDF in one click. Nothing leaves your device.",
+            },
+          ].map((f) => (
+            <div
+              key={f.title}
+              className="rounded-xl border border-white/10 bg-white/[0.03] p-4 backdrop-blur transition hover:border-white/20 hover:bg-white/[0.05]"
+            >
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/10 border border-blue-400/20">
+                {f.icon}
+              </div>
+              <p className="mt-3 text-sm font-medium">{f.title}</p>
+              <p className="mt-1 text-xs text-white/50 leading-relaxed">{f.desc}</p>
+            </div>
+          ))}
+        </div>
+      </section>
     </main>
   );
 }
