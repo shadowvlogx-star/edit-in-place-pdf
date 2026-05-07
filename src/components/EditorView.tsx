@@ -1,6 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import * as fabric from "fabric";
-import { Download, ArrowLeft, Loader2, Plus, Minus } from "lucide-react";
+import {
+  Download,
+  ArrowLeft,
+  Loader2,
+  Plus,
+  Minus,
+  Trash2,
+  ZoomIn,
+  ZoomOut,
+  FileText,
+  MousePointer2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import {
@@ -20,10 +31,14 @@ interface Props {
 interface PageRef {
   pageNumber: number;
   fabricCanvas: fabric.Canvas;
+  wrap: HTMLDivElement;
+  width: number;
+  height: number;
 }
 
 export function EditorView({ file, onBack }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const thumbsRef = useRef<HTMLDivElement>(null);
   const pageRefsRef = useRef<PageRef[]>([]);
   const editsRef = useRef<EditMap>({});
   const pagesDataRef = useRef<ExtractedPage[]>([]);
@@ -31,6 +46,9 @@ export function EditorView({ file, onBack }: Props) {
   const activeTextRef = useRef<fabric.IText | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [pageCount, setPageCount] = useState(0);
+  const [activePage, setActivePage] = useState(1);
   const [, force] = useState(0);
   const refresh = () => force((n) => n + 1);
 
@@ -45,16 +63,19 @@ export function EditorView({ file, onBack }: Props) {
 
         if (!containerRef.current || cancelled) return;
         containerRef.current.innerHTML = "";
+        if (thumbsRef.current) thumbsRef.current.innerHTML = "";
         pageRefsRef.current = [];
         pagesDataRef.current = [];
         editsRef.current = {};
+        setPageCount(pdf.numPages);
 
         for (let i = 1; i <= pdf.numPages; i++) {
           if (cancelled) return;
 
           const wrap = document.createElement("div");
           wrap.className =
-            "relative mx-auto mb-6 rounded-lg overflow-hidden shadow-soft bg-surface";
+            "relative mx-auto mb-8 rounded-md overflow-hidden bg-white shadow-[0_20px_60px_-20px_rgba(0,0,0,0.6)] ring-1 ring-white/5";
+          wrap.dataset.page = String(i);
           containerRef.current.appendChild(wrap);
 
           const pdfCanvas = document.createElement("canvas");
@@ -104,13 +125,11 @@ export function EditorView({ file, onBack }: Props) {
               fontWeight: fv.bold ? "700" : "400",
               fontStyle: fv.italic ? "italic" : "normal",
               fill: b.color || "#111827",
-              // Always fully opaque so the edit text covers the original glyph
-              // exactly — no need to erase the PDF underneath.
               opacity: 1,
               editable: true,
               hasControls: false,
               hasBorders: false,
-              selectionColor: "rgba(59,130,246,0.15)",
+              selectionColor: "rgba(0,0,0,0)",
               cursorColor: "#111827",
               lineHeight: 1,
               padding: 0,
@@ -143,7 +162,6 @@ export function EditorView({ file, onBack }: Props) {
             fc.add(tb);
           }
 
-          // Single click on empty area => deselect, no edit, no new text.
           fc.on("mouse:down", (event) => {
             if (event.target) return;
             const active = fc.getActiveObject() as fabric.IText | null;
@@ -154,7 +172,6 @@ export function EditorView({ file, onBack }: Props) {
             refresh();
           });
 
-          // Double click on empty area => add new editable text there.
           fc.on("mouse:dblclick", (event) => {
             if (event.target) return;
             const pointer = fc.getPointer(event.e);
@@ -179,8 +196,57 @@ export function EditorView({ file, onBack }: Props) {
             refresh();
           });
 
-          pageRefsRef.current.push({ pageNumber: i, fabricCanvas: fc });
+          pageRefsRef.current.push({ pageNumber: i, fabricCanvas: fc, wrap, width, height });
+
+          // Build thumbnail
+          if (thumbsRef.current) {
+            const tWrap = document.createElement("button");
+            tWrap.type = "button";
+            tWrap.className =
+              "group block w-full rounded-md overflow-hidden border border-white/10 bg-white/5 hover:border-blue-400/50 transition text-left";
+            tWrap.dataset.thumb = String(i);
+            const tCanvas = document.createElement("canvas");
+            tCanvas.style.display = "block";
+            tCanvas.style.width = "100%";
+            tWrap.appendChild(tCanvas);
+            const label = document.createElement("div");
+            label.className = "px-2 py-1 text-[10px] text-white/50 group-hover:text-white/80";
+            label.textContent = `Page ${i}`;
+            tWrap.appendChild(label);
+            thumbsRef.current.appendChild(tWrap);
+
+            // Render small
+            const page = await pdf.getPage(i);
+            const vp = page.getViewport({ scale: 0.25 });
+            tCanvas.width = vp.width;
+            tCanvas.height = vp.height;
+            const tctx = tCanvas.getContext("2d")!;
+            await page.render({ canvasContext: tctx, viewport: vp, canvas: tCanvas }).promise;
+
+            tWrap.addEventListener("click", () => {
+              wrap.scrollIntoView({ behavior: "smooth", block: "start" });
+              setActivePage(i);
+            });
+          }
         }
+
+        // Track active page on scroll
+        const scrollEl = containerRef.current?.parentElement;
+        const onScroll = () => {
+          if (!scrollEl) return;
+          const top = scrollEl.scrollTop;
+          let best = 1;
+          let bestDist = Infinity;
+          for (const p of pageRefsRef.current) {
+            const d = Math.abs(p.wrap.offsetTop - top);
+            if (d < bestDist) {
+              bestDist = d;
+              best = p.pageNumber;
+            }
+          }
+          setActivePage(best);
+        };
+        scrollEl?.addEventListener("scroll", onScroll);
 
         const handleKey = (e: KeyboardEvent) => {
           if (e.key !== "Delete" && e.key !== "Backspace") return;
@@ -201,6 +267,7 @@ export function EditorView({ file, onBack }: Props) {
         document.addEventListener("keydown", handleKey);
         (containerRef.current as unknown as { _cleanup?: () => void })._cleanup = () => {
           document.removeEventListener("keydown", handleKey);
+          scrollEl?.removeEventListener("scroll", onScroll);
         };
       } catch (err) {
         console.error(err);
@@ -219,6 +286,17 @@ export function EditorView({ file, onBack }: Props) {
     };
   }, [file]);
 
+  // Apply zoom via CSS transform on each page wrap
+  useEffect(() => {
+    for (const p of pageRefsRef.current) {
+      p.wrap.style.transform = `scale(${zoom})`;
+      p.wrap.style.transformOrigin = "top center";
+      p.wrap.style.marginBottom = `${32 * zoom}px`;
+      p.wrap.style.width = `${p.width}px`;
+      p.wrap.style.height = `${p.height}px`;
+    }
+  }, [zoom]);
+
   const adjustFontSize = (delta: number) => {
     const t = activeTextRef.current;
     if (!t) return;
@@ -227,6 +305,19 @@ export function EditorView({ file, onBack }: Props) {
     const blockId = (t as unknown as { _blockId?: string })._blockId;
     if (blockId) editsRef.current[blockId] = t.text || "";
     t.canvas?.requestRenderAll();
+    refresh();
+  };
+
+  const deleteActive = () => {
+    const t = activeTextRef.current;
+    if (!t || t.isEditing) return;
+    const blockId = (t as unknown as { _blockId?: string })._blockId;
+    if (blockId) editsRef.current[blockId] = "";
+    const fc = t.canvas;
+    fc?.remove(t);
+    fc?.discardActiveObject();
+    activeTextRef.current = null;
+    fc?.requestRenderAll();
     refresh();
   };
 
@@ -266,50 +357,146 @@ export function EditorView({ file, onBack }: Props) {
   const active = activeTextRef.current;
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-20 border-b border-border bg-surface/80 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-6 py-3">
-          <Button variant="ghost" size="sm" onClick={onBack}>
+    <div className="h-screen flex flex-col bg-[#0A0B0F] text-white overflow-hidden">
+      {/* Top toolbar */}
+      <header className="flex items-center justify-between gap-3 border-b border-white/10 bg-[#0E1015]/95 backdrop-blur px-4 py-2.5">
+        <div className="flex items-center gap-3">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onBack}
+            className="text-white/70 hover:text-white hover:bg-white/10"
+          >
             <ArrowLeft className="mr-1 h-4 w-4" /> New file
           </Button>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="icon"
+          <div className="hidden sm:flex items-center gap-2 pl-3 border-l border-white/10">
+            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-gradient-to-br from-blue-500 to-indigo-600">
+              <FileText className="h-3.5 w-3.5 text-white" />
+            </div>
+            <span className="text-xs font-medium truncate max-w-[200px]" title={file.name}>
+              {file.name}
+            </span>
+          </div>
+        </div>
+
+        {/* Center toolbar */}
+        <div className="flex items-center gap-1.5">
+          <ToolGroup>
+            <IconBtn
               disabled={!active}
               onClick={() => adjustFontSize(-2)}
               title="Decrease font size"
             >
               <Minus className="h-4 w-4" />
-            </Button>
-            <span className="w-10 text-center text-sm tabular-nums text-muted-foreground">
+            </IconBtn>
+            <span className="w-9 text-center text-xs tabular-nums text-white/70">
               {active ? Math.round((active.fontSize || 0) / RENDER_SCALE) : "–"}
             </span>
-            <Button
-              variant="outline"
-              size="icon"
+            <IconBtn
               disabled={!active}
               onClick={() => adjustFontSize(2)}
               title="Increase font size"
             >
               <Plus className="h-4 w-4" />
-            </Button>
-          </div>
-          <Button onClick={handleDownload} disabled={saving || loading}>
+            </IconBtn>
+          </ToolGroup>
+
+          <ToolGroup>
+            <IconBtn onClick={() => setZoom((z) => Math.max(0.5, +(z - 0.1).toFixed(2)))} title="Zoom out">
+              <ZoomOut className="h-4 w-4" />
+            </IconBtn>
+            <span className="w-12 text-center text-xs tabular-nums text-white/70">
+              {Math.round(zoom * 100)}%
+            </span>
+            <IconBtn onClick={() => setZoom((z) => Math.min(2.5, +(z + 0.1).toFixed(2)))} title="Zoom in">
+              <ZoomIn className="h-4 w-4" />
+            </IconBtn>
+          </ToolGroup>
+
+          <ToolGroup>
+            <IconBtn disabled={!active} onClick={deleteActive} title="Delete selected">
+              <Trash2 className="h-4 w-4" />
+            </IconBtn>
+          </ToolGroup>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="hidden md:inline-flex items-center gap-1.5 text-xs text-white/50">
+            <MousePointer2 className="h-3 w-3" />
+            Click to edit · Double-click empty to add
+          </span>
+          <Button
+            onClick={handleDownload}
+            disabled={saving || loading}
+            className="bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-400 hover:to-indigo-500 text-white shadow-[0_0_30px_-5px_rgba(59,130,246,0.6)]"
+          >
             {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
             Download
           </Button>
         </div>
       </header>
 
-      {loading && (
-        <div className="flex items-center justify-center py-24 text-muted-foreground">
-          <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading PDF…
-        </div>
-      )}
+      {/* Workspace */}
+      <div className="flex flex-1 min-h-0">
+        {/* Left thumbnails sidebar */}
+        <aside className="hidden md:flex flex-col w-48 shrink-0 border-r border-white/10 bg-[#0C0D12]">
+          <div className="px-3 py-2.5 text-[11px] uppercase tracking-wider text-white/40 border-b border-white/5 flex items-center justify-between">
+            <span>Pages</span>
+            <span className="text-white/30">{pageCount}</span>
+          </div>
+          <div ref={thumbsRef} className="flex-1 overflow-y-auto p-2 space-y-2" />
+        </aside>
 
-      <div ref={containerRef} className="mx-auto max-w-5xl px-6 py-8" />
+        {/* Center canvas area */}
+        <main className="flex-1 overflow-auto bg-[#0A0B0F]">
+          {loading && (
+            <div className="flex items-center justify-center py-24 text-white/60">
+              <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading PDF…
+            </div>
+          )}
+          <div className="px-6 py-8 flex flex-col items-center">
+            <div ref={containerRef} />
+          </div>
+        </main>
+
+        {/* Right indicator */}
+        <aside className="hidden lg:flex flex-col w-12 shrink-0 border-l border-white/10 bg-[#0C0D12] items-center pt-3">
+          <div className="text-[10px] text-white/40">{activePage}/{pageCount || "–"}</div>
+        </aside>
+      </div>
     </div>
+  );
+}
+
+function ToolGroup({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-0.5 rounded-lg border border-white/10 bg-white/[0.03] px-1 py-0.5">
+      {children}
+    </div>
+  );
+}
+
+function IconBtn({
+  children,
+  disabled,
+  onClick,
+  title,
+}: {
+  children: React.ReactNode;
+  disabled?: boolean;
+  onClick?: () => void;
+  title?: string;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      disabled={disabled}
+      onClick={onClick}
+      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-white/70 hover:text-white hover:bg-white/10 disabled:opacity-30 disabled:hover:bg-transparent transition"
+    >
+      {children}
+    </button>
   );
 }
 
@@ -338,9 +525,6 @@ function mapFont(name: string, bold = false): string {
     : SERIF_HINTS.some((m) => n.includes(m))
       ? '"Source Serif 4", "Times New Roman", Times, serif'
       : 'Inter, Helvetica, Arial, sans-serif';
-  // For bold variants, skip the embedded css family because it is often a
-  // single-weight subset that cannot render bold — fall back to a system
-  // family that DOES have a bold weight.
   if (bold) return fallback;
   if (cssFamily && !/^g_d\d+/i.test(cssFamily)) {
     return `"${cssFamily}", ${fallback}`;
