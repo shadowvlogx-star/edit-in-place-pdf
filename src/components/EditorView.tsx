@@ -691,6 +691,7 @@ function IconBtn({
   disabled,
   onClick,
   title,
+  pressed,
 }: {
   children: React.ReactNode;
   disabled?: boolean;
@@ -705,9 +706,7 @@ function IconBtn({
       disabled={disabled}
       onClick={onClick}
       className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition disabled:opacity-30 disabled:hover:bg-transparent ${
-        arguments[0].pressed
-          ? "bg-blue-500/20 text-blue-300"
-          : "text-white/70 hover:text-white hover:bg-white/10"
+        pressed ? "bg-blue-500/20 text-blue-300" : "text-white/70 hover:text-white hover:bg-white/10"
       }`}
     >
       {children}
