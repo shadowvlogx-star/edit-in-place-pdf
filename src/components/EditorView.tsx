@@ -64,11 +64,14 @@ export function EditorView({ file, onBack }: Props) {
   const pagesDataRef = useRef<ExtractedPage[]>([]);
   const originalBytesRef = useRef<ArrayBuffer | null>(null);
   const activeTextRef = useRef<fabric.IText | null>(null);
+  const undoRef = useRef<Array<() => void>>([]);
+  const redoRef = useRef<Array<() => void>>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [pageCount, setPageCount] = useState(0);
   const [activePage, setActivePage] = useState(1);
+  const [searchQuery, setSearchQuery] = useState("");
   const [, force] = useState(0);
   const refresh = () => force((n) => n + 1);
 
