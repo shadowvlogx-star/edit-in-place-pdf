@@ -352,6 +352,88 @@ export function EditorView({ file, onBack }: Props) {
     refresh();
   };
 
+  const updateActive = (props: Partial<fabric.IText>) => {
+    const t = activeTextRef.current;
+    if (!t) return;
+    t.set(props as object);
+    const blockId = (t as unknown as { _blockId?: string })._blockId;
+    if (blockId) editsRef.current[blockId] = t.text || "";
+    t.canvas?.requestRenderAll();
+    refresh();
+  };
+
+  const toggleStyle = (key: "fontWeight" | "fontStyle" | "underline") => {
+    const t = activeTextRef.current;
+    if (!t) return;
+    if (key === "fontWeight") {
+      t.set({ fontWeight: t.fontWeight === "700" ? "400" : "700" });
+    } else if (key === "fontStyle") {
+      t.set({ fontStyle: t.fontStyle === "italic" ? "normal" : "italic" });
+    } else {
+      t.set({ underline: !t.underline });
+    }
+    t.canvas?.requestRenderAll();
+    refresh();
+  };
+
+  const nudge = (dx: number, dy: number) => {
+    const t = activeTextRef.current;
+    if (!t) return;
+    t.set({ left: (t.left || 0) + dx, top: (t.top || 0) + dy });
+    t.setCoords();
+    t.canvas?.requestRenderAll();
+    refresh();
+  };
+
+  const stack = (dir: "forward" | "back") => {
+    const t = activeTextRef.current;
+    if (!t || !t.canvas) return;
+    if (dir === "forward") t.canvas.bringObjectForward(t);
+    else t.canvas.sendObjectBackwards(t);
+    t.canvas.requestRenderAll();
+  };
+
+  const duplicateActive = async () => {
+    const t = activeTextRef.current;
+    if (!t || !t.canvas) return;
+    const cloned = await t.clone();
+    cloned.set({ left: (t.left || 0) + 16, top: (t.top || 0) + 16 });
+    t.canvas.add(cloned);
+    t.canvas.setActiveObject(cloned);
+    activeTextRef.current = cloned as fabric.IText;
+    t.canvas.requestRenderAll();
+    refresh();
+  };
+
+  const rotatePage = () => {
+    for (const p of pageRefsRef.current) {
+      if (p.pageNumber !== activePage) continue;
+      const cur = parseFloat(p.wrap.dataset.rot || "0");
+      const next = (cur + 90) % 360;
+      p.wrap.dataset.rot = String(next);
+      const z = zoom;
+      p.wrap.style.transform = `scale(${z}) rotate(${next}deg)`;
+    }
+  };
+
+  const runSearch = () => {
+    if (!searchQuery.trim()) return;
+    const q = searchQuery.toLowerCase();
+    for (const p of pageRefsRef.current) {
+      const objs = p.fabricCanvas.getObjects() as fabric.IText[];
+      const hit = objs.find((o) => (o.text || "").toLowerCase().includes(q));
+      if (hit) {
+        p.wrap.scrollIntoView({ behavior: "smooth", block: "center" });
+        p.fabricCanvas.setActiveObject(hit);
+        activeTextRef.current = hit;
+        p.fabricCanvas.requestRenderAll();
+        refresh();
+        return;
+      }
+    }
+    toast.message("No match found");
+  };
+
   const handleDownload = async () => {
     if (!originalBytesRef.current) {
       toast.error("PDF not ready");
