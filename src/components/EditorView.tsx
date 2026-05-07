@@ -118,6 +118,13 @@ export function EditorView({ file, onBack }: Props) {
             const topPx = baselinePx - fontPx * 0.88;
             const leftPx = b.x * RENDER_SCALE;
 
+            // Erase original glyphs on underlying PDF canvas to prevent duplicate text overlap.
+            const eraseX = Math.max(0, leftPx - 1);
+            const eraseY = Math.max(0, baselinePx - fontPx * 1.05);
+            const eraseW = Math.min(width - eraseX, b.w * RENDER_SCALE + 2);
+            const eraseH = Math.min(height - eraseY, fontPx * 1.35);
+            pdfCtx.clearRect(eraseX, eraseY, eraseW, eraseH);
+
             const tb = new fabric.IText(b.text, {
               left: leftPx,
               top: topPx,
