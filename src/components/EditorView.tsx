@@ -83,6 +83,7 @@ export function EditorView({ file, onBack }: Props) {
           wrap.appendChild(pdfCanvas);
 
           const { width, height } = await renderPageToCanvas(pdf, i, pdfCanvas);
+          const pdfCtx = pdfCanvas.getContext("2d")!;
 
           const overlay = document.createElement("canvas");
           overlay.width = width;
