@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as fabric from "fabric";
 import {
   Download,
@@ -11,7 +11,27 @@ import {
   ZoomOut,
   FileText,
   MousePointer2,
+  Bold,
+  Italic,
+  Underline,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  AlignJustify,
+  ArrowUp,
+  ArrowDown,
+  ArrowLeftToLine,
+  ArrowRightToLine,
+  ChevronsUp,
+  ChevronsDown,
+  Copy,
+  Undo2,
+  Redo2,
+  RotateCw,
+  Search,
+  Save,
 } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import {
