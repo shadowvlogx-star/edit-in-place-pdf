@@ -696,6 +696,7 @@ function IconBtn({
   disabled?: boolean;
   onClick?: () => void;
   title?: string;
+  pressed?: boolean;
 }) {
   return (
     <button
@@ -703,12 +704,30 @@ function IconBtn({
       title={title}
       disabled={disabled}
       onClick={onClick}
-      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-white/70 hover:text-white hover:bg-white/10 disabled:opacity-30 disabled:hover:bg-transparent transition"
+      className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition disabled:opacity-30 disabled:hover:bg-transparent ${
+        arguments[0].pressed
+          ? "bg-blue-500/20 text-blue-300"
+          : "text-white/70 hover:text-white hover:bg-white/10"
+      }`}
     >
       {children}
     </button>
   );
 }
+
+const FONT_FAMILIES = [
+  "Inter",
+  "Helvetica",
+  "Arial",
+  "Times New Roman",
+  "Georgia",
+  "Courier New",
+  "Verdana",
+  "Tahoma",
+  "Trebuchet MS",
+  "Source Serif 4",
+  "JetBrains Mono",
+];
 
 function normalizeFont(name: string): string {
   return (name || "").replace(/^[A-Z]{6}\+/g, "").toLowerCase();
