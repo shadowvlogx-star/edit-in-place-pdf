@@ -11,7 +11,27 @@ import {
   ZoomOut,
   FileText,
   MousePointer2,
+  Bold,
+  Italic,
+  Underline,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  AlignJustify,
+  ArrowUp,
+  ArrowDown,
+  ArrowLeftToLine,
+  ArrowRightToLine,
+  ChevronsUp,
+  ChevronsDown,
+  Copy,
+  Undo2,
+  Redo2,
+  RotateCw,
+  Search,
+  Save,
 } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import {
@@ -44,11 +64,14 @@ export function EditorView({ file, onBack }: Props) {
   const pagesDataRef = useRef<ExtractedPage[]>([]);
   const originalBytesRef = useRef<ArrayBuffer | null>(null);
   const activeTextRef = useRef<fabric.IText | null>(null);
+  const undoRef = useRef<Array<() => void>>([]);
+  const redoRef = useRef<Array<() => void>>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [pageCount, setPageCount] = useState(0);
   const [activePage, setActivePage] = useState(1);
+  const [searchQuery, setSearchQuery] = useState("");
   const [, force] = useState(0);
   const refresh = () => force((n) => n + 1);
 
@@ -329,6 +352,88 @@ export function EditorView({ file, onBack }: Props) {
     refresh();
   };
 
+  const updateActive = (props: Partial<fabric.IText>) => {
+    const t = activeTextRef.current;
+    if (!t) return;
+    t.set(props as object);
+    const blockId = (t as unknown as { _blockId?: string })._blockId;
+    if (blockId) editsRef.current[blockId] = t.text || "";
+    t.canvas?.requestRenderAll();
+    refresh();
+  };
+
+  const toggleStyle = (key: "fontWeight" | "fontStyle" | "underline") => {
+    const t = activeTextRef.current;
+    if (!t) return;
+    if (key === "fontWeight") {
+      t.set({ fontWeight: t.fontWeight === "700" ? "400" : "700" });
+    } else if (key === "fontStyle") {
+      t.set({ fontStyle: t.fontStyle === "italic" ? "normal" : "italic" });
+    } else {
+      t.set({ underline: !t.underline });
+    }
+    t.canvas?.requestRenderAll();
+    refresh();
+  };
+
+  const nudge = (dx: number, dy: number) => {
+    const t = activeTextRef.current;
+    if (!t) return;
+    t.set({ left: (t.left || 0) + dx, top: (t.top || 0) + dy });
+    t.setCoords();
+    t.canvas?.requestRenderAll();
+    refresh();
+  };
+
+  const stack = (dir: "forward" | "back") => {
+    const t = activeTextRef.current;
+    if (!t || !t.canvas) return;
+    if (dir === "forward") t.canvas.bringObjectForward(t);
+    else t.canvas.sendObjectBackwards(t);
+    t.canvas.requestRenderAll();
+  };
+
+  const duplicateActive = async () => {
+    const t = activeTextRef.current;
+    if (!t || !t.canvas) return;
+    const cloned = await t.clone();
+    cloned.set({ left: (t.left || 0) + 16, top: (t.top || 0) + 16 });
+    t.canvas.add(cloned);
+    t.canvas.setActiveObject(cloned);
+    activeTextRef.current = cloned as fabric.IText;
+    t.canvas.requestRenderAll();
+    refresh();
+  };
+
+  const rotatePage = () => {
+    for (const p of pageRefsRef.current) {
+      if (p.pageNumber !== activePage) continue;
+      const cur = parseFloat(p.wrap.dataset.rot || "0");
+      const next = (cur + 90) % 360;
+      p.wrap.dataset.rot = String(next);
+      const z = zoom;
+      p.wrap.style.transform = `scale(${z}) rotate(${next}deg)`;
+    }
+  };
+
+  const runSearch = () => {
+    if (!searchQuery.trim()) return;
+    const q = searchQuery.toLowerCase();
+    for (const p of pageRefsRef.current) {
+      const objs = p.fabricCanvas.getObjects() as fabric.IText[];
+      const hit = objs.find((o) => (o.text || "").toLowerCase().includes(q));
+      if (hit) {
+        p.wrap.scrollIntoView({ behavior: "smooth", block: "center" });
+        p.fabricCanvas.setActiveObject(hit);
+        activeTextRef.current = hit;
+        p.fabricCanvas.requestRenderAll();
+        refresh();
+        return;
+      }
+    }
+    toast.message("No match found");
+  };
+
   const handleDownload = async () => {
     if (!originalBytesRef.current) {
       toast.error("PDF not ready");
@@ -388,43 +493,140 @@ export function EditorView({ file, onBack }: Props) {
         </div>
 
         {/* Center toolbar */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-1 items-center justify-center flex-wrap gap-1.5">
           <ToolGroup>
-            <IconBtn
+            <select
               disabled={!active}
-              onClick={() => adjustFontSize(-2)}
-              title="Decrease font size"
+              value={(active?.fontFamily as string)?.split(",")[0].replace(/"/g, "") || "Inter"}
+              onChange={(e) => updateActive({ fontFamily: `"${e.target.value}", Inter, sans-serif` })}
+              className="h-7 bg-transparent text-xs text-white/80 outline-none disabled:opacity-30 px-1.5 max-w-[120px]"
+              title="Font family"
             >
-              <Minus className="h-4 w-4" />
+              {FONT_FAMILIES.map((f) => (
+                <option key={f} value={f} className="bg-[#0E1015]">{f}</option>
+              ))}
+            </select>
+          </ToolGroup>
+
+          <ToolGroup>
+            <IconBtn disabled={!active} onClick={() => adjustFontSize(-2)} title="Decrease font size">
+              <Minus className="h-3.5 w-3.5" />
             </IconBtn>
-            <span className="w-9 text-center text-xs tabular-nums text-white/70">
-              {active ? Math.round((active.fontSize || 0) / RENDER_SCALE) : "–"}
-            </span>
-            <IconBtn
+            <input
+              type="number"
               disabled={!active}
-              onClick={() => adjustFontSize(2)}
-              title="Increase font size"
-            >
-              <Plus className="h-4 w-4" />
+              value={active ? Math.round((active.fontSize || 0) / RENDER_SCALE) : ""}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                if (!Number.isNaN(v)) updateActive({ fontSize: Math.max(6, v * RENDER_SCALE) });
+              }}
+              className="w-10 h-7 bg-transparent text-center text-xs tabular-nums text-white/80 outline-none disabled:opacity-30"
+              title="Font size"
+            />
+            <IconBtn disabled={!active} onClick={() => adjustFontSize(2)} title="Increase font size">
+              <Plus className="h-3.5 w-3.5" />
             </IconBtn>
+          </ToolGroup>
+
+          <ToolGroup>
+            <IconBtn disabled={!active} onClick={() => toggleStyle("fontWeight")} title="Bold" pressed={active?.fontWeight === "700"}>
+              <Bold className="h-3.5 w-3.5" />
+            </IconBtn>
+            <IconBtn disabled={!active} onClick={() => toggleStyle("fontStyle")} title="Italic" pressed={active?.fontStyle === "italic"}>
+              <Italic className="h-3.5 w-3.5" />
+            </IconBtn>
+            <IconBtn disabled={!active} onClick={() => toggleStyle("underline")} title="Underline" pressed={!!active?.underline}>
+              <Underline className="h-3.5 w-3.5" />
+            </IconBtn>
+            <label className={`inline-flex h-7 w-7 items-center justify-center rounded-md cursor-pointer ${active ? "hover:bg-white/10" : "opacity-30"}`} title="Text color">
+              <input
+                type="color"
+                disabled={!active}
+                value={(active?.fill as string) || "#111827"}
+                onChange={(e) => updateActive({ fill: e.target.value })}
+                className="h-4 w-4 cursor-pointer bg-transparent border-0 p-0"
+              />
+            </label>
+          </ToolGroup>
+
+          <ToolGroup>
+            <input
+              type="number"
+              step={0.5}
+              disabled={!active}
+              value={(active?.charSpacing || 0) / 10}
+              onChange={(e) => updateActive({ charSpacing: parseFloat(e.target.value || "0") * 10 })}
+              className="w-12 h-7 bg-transparent text-center text-xs text-white/80 outline-none disabled:opacity-30"
+              title="Letter spacing"
+            />
+            <input
+              type="number"
+              step={0.1}
+              disabled={!active}
+              value={active?.lineHeight || 1}
+              onChange={(e) => updateActive({ lineHeight: parseFloat(e.target.value || "1") })}
+              className="w-12 h-7 bg-transparent text-center text-xs text-white/80 outline-none disabled:opacity-30"
+              title="Line height"
+            />
+          </ToolGroup>
+
+          <ToolGroup>
+            <IconBtn disabled={!active} onClick={() => updateActive({ textAlign: "left" })} title="Align left" pressed={active?.textAlign === "left"}>
+              <AlignLeft className="h-3.5 w-3.5" />
+            </IconBtn>
+            <IconBtn disabled={!active} onClick={() => updateActive({ textAlign: "center" })} title="Align center" pressed={active?.textAlign === "center"}>
+              <AlignCenter className="h-3.5 w-3.5" />
+            </IconBtn>
+            <IconBtn disabled={!active} onClick={() => updateActive({ textAlign: "right" })} title="Align right" pressed={active?.textAlign === "right"}>
+              <AlignRight className="h-3.5 w-3.5" />
+            </IconBtn>
+            <IconBtn disabled={!active} onClick={() => updateActive({ textAlign: "justify" })} title="Justify" pressed={active?.textAlign === "justify"}>
+              <AlignJustify className="h-3.5 w-3.5" />
+            </IconBtn>
+          </ToolGroup>
+
+          <ToolGroup>
+            <IconBtn disabled={!active} onClick={() => nudge(-4, 0)} title="Move left"><ArrowLeftToLine className="h-3.5 w-3.5" /></IconBtn>
+            <IconBtn disabled={!active} onClick={() => nudge(4, 0)} title="Move right"><ArrowRightToLine className="h-3.5 w-3.5" /></IconBtn>
+            <IconBtn disabled={!active} onClick={() => nudge(0, -4)} title="Move up"><ArrowUp className="h-3.5 w-3.5" /></IconBtn>
+            <IconBtn disabled={!active} onClick={() => nudge(0, 4)} title="Move down"><ArrowDown className="h-3.5 w-3.5" /></IconBtn>
+          </ToolGroup>
+
+          <ToolGroup>
+            <IconBtn disabled={!active} onClick={() => stack("forward")} title="Bring forward"><ChevronsUp className="h-3.5 w-3.5" /></IconBtn>
+            <IconBtn disabled={!active} onClick={() => stack("back")} title="Send backward"><ChevronsDown className="h-3.5 w-3.5" /></IconBtn>
+            <IconBtn disabled={!active} onClick={duplicateActive} title="Duplicate"><Copy className="h-3.5 w-3.5" /></IconBtn>
+            <IconBtn disabled={!active} onClick={deleteActive} title="Delete selected"><Trash2 className="h-3.5 w-3.5" /></IconBtn>
+          </ToolGroup>
+
+          <ToolGroup>
+            <IconBtn onClick={() => toast.message("Undo coming soon")} title="Undo"><Undo2 className="h-3.5 w-3.5" /></IconBtn>
+            <IconBtn onClick={() => toast.message("Redo coming soon")} title="Redo"><Redo2 className="h-3.5 w-3.5" /></IconBtn>
           </ToolGroup>
 
           <ToolGroup>
             <IconBtn onClick={() => setZoom((z) => Math.max(0.5, +(z - 0.1).toFixed(2)))} title="Zoom out">
-              <ZoomOut className="h-4 w-4" />
+              <ZoomOut className="h-3.5 w-3.5" />
             </IconBtn>
-            <span className="w-12 text-center text-xs tabular-nums text-white/70">
-              {Math.round(zoom * 100)}%
-            </span>
+            <span className="w-11 text-center text-xs tabular-nums text-white/70">{Math.round(zoom * 100)}%</span>
             <IconBtn onClick={() => setZoom((z) => Math.min(2.5, +(z + 0.1).toFixed(2)))} title="Zoom in">
-              <ZoomIn className="h-4 w-4" />
+              <ZoomIn className="h-3.5 w-3.5" />
             </IconBtn>
           </ToolGroup>
 
           <ToolGroup>
-            <IconBtn disabled={!active} onClick={deleteActive} title="Delete selected">
-              <Trash2 className="h-4 w-4" />
-            </IconBtn>
+            <IconBtn onClick={rotatePage} title="Rotate page"><RotateCw className="h-3.5 w-3.5" /></IconBtn>
+          </ToolGroup>
+
+          <ToolGroup>
+            <Search className="h-3.5 w-3.5 text-white/50 ml-1" />
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && runSearch()}
+              placeholder="Search"
+              className="w-24 h-7 bg-transparent text-xs text-white/80 outline-none placeholder:text-white/30 px-1"
+            />
           </ToolGroup>
         </div>
 
@@ -489,11 +691,13 @@ function IconBtn({
   disabled,
   onClick,
   title,
+  pressed,
 }: {
   children: React.ReactNode;
   disabled?: boolean;
   onClick?: () => void;
   title?: string;
+  pressed?: boolean;
 }) {
   return (
     <button
@@ -501,12 +705,28 @@ function IconBtn({
       title={title}
       disabled={disabled}
       onClick={onClick}
-      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-white/70 hover:text-white hover:bg-white/10 disabled:opacity-30 disabled:hover:bg-transparent transition"
+      className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition disabled:opacity-30 disabled:hover:bg-transparent ${
+        pressed ? "bg-blue-500/20 text-blue-300" : "text-white/70 hover:text-white hover:bg-white/10"
+      }`}
     >
       {children}
     </button>
   );
 }
+
+const FONT_FAMILIES = [
+  "Inter",
+  "Helvetica",
+  "Arial",
+  "Times New Roman",
+  "Georgia",
+  "Courier New",
+  "Verdana",
+  "Tahoma",
+  "Trebuchet MS",
+  "Source Serif 4",
+  "JetBrains Mono",
+];
 
 function normalizeFont(name: string): string {
   return (name || "").replace(/^[A-Z]{6}\+/g, "").toLowerCase();
