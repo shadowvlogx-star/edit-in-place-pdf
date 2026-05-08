@@ -412,6 +412,8 @@ export function EditorView({ file, onBack }: Props) {
       updateActive({ underline: next });
     }
   };
+
+  const nudge = (dx: number, dy: number) => {
     const t = activeTextRef.current;
     if (!t) return;
     t.set({ left: (t.left || 0) + dx, top: (t.top || 0) + dy });
