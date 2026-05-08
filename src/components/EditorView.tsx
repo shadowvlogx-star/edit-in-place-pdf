@@ -247,14 +247,6 @@ export function EditorView({ file, onBack }: Props) {
             fc.requestRenderAll();
             refresh();
           });
-            fc.add(newText);
-            fc.setActiveObject(newText);
-            newText.enterEditing();
-            newText.selectAll();
-            activeTextRef.current = newText;
-            fc.requestRenderAll();
-            refresh();
-          });
 
           pageRefsRef.current.push({ pageNumber: i, fabricCanvas: fc, wrap, width, height });
 
