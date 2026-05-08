@@ -223,18 +223,30 @@ export function EditorView({ file, onBack }: Props) {
           fc.on("mouse:dblclick", (event) => {
             if (event.target) return;
             const pointer = fc.getPointer(event.e);
+            const p = prefRef.current;
             const newText = new fabric.IText("New text", {
               left: pointer.x,
               top: pointer.y,
-              fontSize: 18 * RENDER_SCALE,
-              fontFamily: 'Inter, Helvetica, Arial, sans-serif',
-              fill: "#111827",
+              fontSize: p.fontSize * RENDER_SCALE,
+              fontFamily: `"${p.fontFamily}", Inter, Helvetica, Arial, sans-serif`,
+              fontWeight: p.bold ? "700" : "400",
+              fontStyle: p.italic ? "italic" : "normal",
+              underline: p.underline,
+              fill: p.fill,
               editable: true,
               hasControls: false,
               hasBorders: false,
               padding: 0,
               backgroundColor: "",
             });
+            fc.add(newText);
+            fc.setActiveObject(newText);
+            newText.enterEditing();
+            newText.selectAll();
+            activeTextRef.current = newText;
+            fc.requestRenderAll();
+            refresh();
+          });
             fc.add(newText);
             fc.setActiveObject(newText);
             newText.enterEditing();
