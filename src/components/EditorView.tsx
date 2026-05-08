@@ -66,6 +66,23 @@ export function EditorView({ file, onBack }: Props) {
   const activeTextRef = useRef<fabric.IText | null>(null);
   const undoRef = useRef<Array<() => void>>([]);
   const redoRef = useRef<Array<() => void>>([]);
+  // Persistent preferred styling — applied to active text immediately AND remembered
+  // for any future text the user clicks into or adds with double-click.
+  const prefRef = useRef<{
+    fill: string;
+    fontFamily: string;
+    fontSize: number;
+    bold: boolean;
+    italic: boolean;
+    underline: boolean;
+  }>({
+    fill: "#111827",
+    fontFamily: "Inter",
+    fontSize: 18,
+    bold: false,
+    italic: false,
+    underline: false,
+  });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [zoom, setZoom] = useState(1);
