@@ -66,6 +66,23 @@ export function EditorView({ file, onBack }: Props) {
   const activeTextRef = useRef<fabric.IText | null>(null);
   const undoRef = useRef<Array<() => void>>([]);
   const redoRef = useRef<Array<() => void>>([]);
+  // Persistent preferred styling — applied to active text immediately AND remembered
+  // for any future text the user clicks into or adds with double-click.
+  const prefRef = useRef<{
+    fill: string;
+    fontFamily: string;
+    fontSize: number;
+    bold: boolean;
+    italic: boolean;
+    underline: boolean;
+  }>({
+    fill: "#111827",
+    fontFamily: "Inter",
+    fontSize: 18,
+    bold: false,
+    italic: false,
+    underline: false,
+  });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [zoom, setZoom] = useState(1);
@@ -206,12 +223,16 @@ export function EditorView({ file, onBack }: Props) {
           fc.on("mouse:dblclick", (event) => {
             if (event.target) return;
             const pointer = fc.getPointer(event.e);
+            const p = prefRef.current;
             const newText = new fabric.IText("New text", {
               left: pointer.x,
               top: pointer.y,
-              fontSize: 18 * RENDER_SCALE,
-              fontFamily: 'Inter, Helvetica, Arial, sans-serif',
-              fill: "#111827",
+              fontSize: p.fontSize * RENDER_SCALE,
+              fontFamily: `"${p.fontFamily}", Inter, Helvetica, Arial, sans-serif`,
+              fontWeight: p.bold ? "700" : "400",
+              fontStyle: p.italic ? "italic" : "normal",
+              underline: p.underline,
+              fill: p.fill,
               editable: true,
               hasControls: false,
               hasBorders: false,
@@ -330,12 +351,16 @@ export function EditorView({ file, onBack }: Props) {
 
   const adjustFontSize = (delta: number) => {
     const t = activeTextRef.current;
-    if (!t) return;
-    const next = Math.max(6, (t.fontSize || 12) + delta);
-    t.set({ fontSize: next });
-    const blockId = (t as unknown as { _blockId?: string })._blockId;
-    if (blockId) editsRef.current[blockId] = t.text || "";
-    t.canvas?.requestRenderAll();
+    if (t) {
+      const next = Math.max(6, (t.fontSize || 12) + delta * RENDER_SCALE);
+      t.set({ fontSize: next });
+      prefRef.current.fontSize = Math.round(next / RENDER_SCALE);
+      const blockId = (t as unknown as { _blockId?: string })._blockId;
+      if (blockId) editsRef.current[blockId] = t.text || "";
+      t.canvas?.requestRenderAll();
+    } else {
+      prefRef.current.fontSize = Math.max(6, prefRef.current.fontSize + delta);
+    }
     refresh();
   };
 
@@ -352,28 +377,40 @@ export function EditorView({ file, onBack }: Props) {
     refresh();
   };
 
+  // Update active text AND remember the change as a preference for future text.
   const updateActive = (props: Partial<fabric.IText>) => {
+    // Persist the relevant fields to prefRef so they apply to next text.
+    if (typeof props.fill === "string") prefRef.current.fill = props.fill;
+    if (typeof props.fontFamily === "string") {
+      prefRef.current.fontFamily = props.fontFamily.split(",")[0].replace(/"/g, "").trim() || prefRef.current.fontFamily;
+    }
+    if (typeof props.fontSize === "number") prefRef.current.fontSize = Math.round(props.fontSize / RENDER_SCALE);
+    if (props.fontWeight !== undefined) prefRef.current.bold = props.fontWeight === "700" || props.fontWeight === 700;
+    if (props.fontStyle !== undefined) prefRef.current.italic = props.fontStyle === "italic";
+    if (props.underline !== undefined) prefRef.current.underline = !!props.underline;
+
     const t = activeTextRef.current;
-    if (!t) return;
-    t.set(props as object);
-    const blockId = (t as unknown as { _blockId?: string })._blockId;
-    if (blockId) editsRef.current[blockId] = t.text || "";
-    t.canvas?.requestRenderAll();
+    if (t) {
+      t.set(props as object);
+      const blockId = (t as unknown as { _blockId?: string })._blockId;
+      if (blockId) editsRef.current[blockId] = t.text || "";
+      t.canvas?.requestRenderAll();
+    }
     refresh();
   };
 
   const toggleStyle = (key: "fontWeight" | "fontStyle" | "underline") => {
     const t = activeTextRef.current;
-    if (!t) return;
     if (key === "fontWeight") {
-      t.set({ fontWeight: t.fontWeight === "700" ? "400" : "700" });
+      const next = t ? (t.fontWeight === "700" ? "400" : "700") : (prefRef.current.bold ? "400" : "700");
+      updateActive({ fontWeight: next });
     } else if (key === "fontStyle") {
-      t.set({ fontStyle: t.fontStyle === "italic" ? "normal" : "italic" });
+      const next = t ? (t.fontStyle === "italic" ? "normal" : "italic") : (prefRef.current.italic ? "normal" : "italic");
+      updateActive({ fontStyle: next });
     } else {
-      t.set({ underline: !t.underline });
+      const next = t ? !t.underline : !prefRef.current.underline;
+      updateActive({ underline: next });
     }
-    t.canvas?.requestRenderAll();
-    refresh();
   };
 
   const nudge = (dx: number, dy: number) => {
@@ -492,14 +529,13 @@ export function EditorView({ file, onBack }: Props) {
           </div>
         </div>
 
-        {/* Center toolbar */}
-        <div className="flex flex-1 items-center justify-center flex-wrap gap-1.5">
+        {/* Center toolbar — horizontally scrollable on narrow screens */}
+        <div className="flex flex-1 items-center justify-start md:justify-center gap-1.5 overflow-x-auto no-scrollbar">
           <ToolGroup>
             <select
-              disabled={!active}
-              value={(active?.fontFamily as string)?.split(",")[0].replace(/"/g, "") || "Inter"}
+              value={active ? ((active.fontFamily as string)?.split(",")[0].replace(/"/g, "") || prefRef.current.fontFamily) : prefRef.current.fontFamily}
               onChange={(e) => updateActive({ fontFamily: `"${e.target.value}", Inter, sans-serif` })}
-              className="h-7 bg-transparent text-xs text-white/80 outline-none disabled:opacity-30 px-1.5 max-w-[120px]"
+              className="h-7 bg-transparent text-xs text-white/80 outline-none px-1.5 max-w-[120px]"
               title="Font family"
             >
               {FONT_FAMILIES.map((f) => (
@@ -509,42 +545,44 @@ export function EditorView({ file, onBack }: Props) {
           </ToolGroup>
 
           <ToolGroup>
-            <IconBtn disabled={!active} onClick={() => adjustFontSize(-2)} title="Decrease font size">
+            <IconBtn onClick={() => adjustFontSize(-2)} title="Decrease font size">
               <Minus className="h-3.5 w-3.5" />
             </IconBtn>
             <input
               type="number"
-              disabled={!active}
-              value={active ? Math.round((active.fontSize || 0) / RENDER_SCALE) : ""}
+              value={active ? Math.round((active.fontSize || 0) / RENDER_SCALE) : prefRef.current.fontSize}
               onChange={(e) => {
                 const v = parseFloat(e.target.value);
                 if (!Number.isNaN(v)) updateActive({ fontSize: Math.max(6, v * RENDER_SCALE) });
               }}
-              className="w-10 h-7 bg-transparent text-center text-xs tabular-nums text-white/80 outline-none disabled:opacity-30"
+              className="w-10 h-7 bg-transparent text-center text-xs tabular-nums text-white/80 outline-none"
               title="Font size"
             />
-            <IconBtn disabled={!active} onClick={() => adjustFontSize(2)} title="Increase font size">
+            <IconBtn onClick={() => adjustFontSize(2)} title="Increase font size">
               <Plus className="h-3.5 w-3.5" />
             </IconBtn>
           </ToolGroup>
 
           <ToolGroup>
-            <IconBtn disabled={!active} onClick={() => toggleStyle("fontWeight")} title="Bold" pressed={active?.fontWeight === "700"}>
+            <IconBtn onClick={() => toggleStyle("fontWeight")} title="Bold" pressed={active ? active.fontWeight === "700" : prefRef.current.bold}>
               <Bold className="h-3.5 w-3.5" />
             </IconBtn>
-            <IconBtn disabled={!active} onClick={() => toggleStyle("fontStyle")} title="Italic" pressed={active?.fontStyle === "italic"}>
+            <IconBtn onClick={() => toggleStyle("fontStyle")} title="Italic" pressed={active ? active.fontStyle === "italic" : prefRef.current.italic}>
               <Italic className="h-3.5 w-3.5" />
             </IconBtn>
-            <IconBtn disabled={!active} onClick={() => toggleStyle("underline")} title="Underline" pressed={!!active?.underline}>
+            <IconBtn onClick={() => toggleStyle("underline")} title="Underline" pressed={active ? !!active.underline : prefRef.current.underline}>
               <Underline className="h-3.5 w-3.5" />
             </IconBtn>
-            <label className={`inline-flex h-7 w-7 items-center justify-center rounded-md cursor-pointer ${active ? "hover:bg-white/10" : "opacity-30"}`} title="Text color">
+            <label className="inline-flex h-7 w-7 items-center justify-center rounded-md cursor-pointer hover:bg-white/10 relative" title="Text color">
+              <span
+                className="h-4 w-4 rounded border border-white/20"
+                style={{ background: active ? ((active.fill as string) || prefRef.current.fill) : prefRef.current.fill }}
+              />
               <input
                 type="color"
-                disabled={!active}
-                value={(active?.fill as string) || "#111827"}
+                value={active ? ((active.fill as string) || prefRef.current.fill) : prefRef.current.fill}
                 onChange={(e) => updateActive({ fill: e.target.value })}
-                className="h-4 w-4 cursor-pointer bg-transparent border-0 p-0"
+                className="absolute inset-0 opacity-0 cursor-pointer"
               />
             </label>
           </ToolGroup>
