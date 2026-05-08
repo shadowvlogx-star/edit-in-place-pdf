@@ -351,12 +351,16 @@ export function EditorView({ file, onBack }: Props) {
 
   const adjustFontSize = (delta: number) => {
     const t = activeTextRef.current;
-    if (!t) return;
-    const next = Math.max(6, (t.fontSize || 12) + delta);
-    t.set({ fontSize: next });
-    const blockId = (t as unknown as { _blockId?: string })._blockId;
-    if (blockId) editsRef.current[blockId] = t.text || "";
-    t.canvas?.requestRenderAll();
+    if (t) {
+      const next = Math.max(6, (t.fontSize || 12) + delta * RENDER_SCALE);
+      t.set({ fontSize: next });
+      prefRef.current.fontSize = Math.round(next / RENDER_SCALE);
+      const blockId = (t as unknown as { _blockId?: string })._blockId;
+      if (blockId) editsRef.current[blockId] = t.text || "";
+      t.canvas?.requestRenderAll();
+    } else {
+      prefRef.current.fontSize = Math.max(6, prefRef.current.fontSize + delta);
+    }
     refresh();
   };
 
@@ -373,31 +377,41 @@ export function EditorView({ file, onBack }: Props) {
     refresh();
   };
 
+  // Update active text AND remember the change as a preference for future text.
   const updateActive = (props: Partial<fabric.IText>) => {
+    // Persist the relevant fields to prefRef so they apply to next text.
+    if (typeof props.fill === "string") prefRef.current.fill = props.fill;
+    if (typeof props.fontFamily === "string") {
+      prefRef.current.fontFamily = props.fontFamily.split(",")[0].replace(/"/g, "").trim() || prefRef.current.fontFamily;
+    }
+    if (typeof props.fontSize === "number") prefRef.current.fontSize = Math.round(props.fontSize / RENDER_SCALE);
+    if (props.fontWeight !== undefined) prefRef.current.bold = props.fontWeight === "700" || props.fontWeight === 700;
+    if (props.fontStyle !== undefined) prefRef.current.italic = props.fontStyle === "italic";
+    if (props.underline !== undefined) prefRef.current.underline = !!props.underline;
+
     const t = activeTextRef.current;
-    if (!t) return;
-    t.set(props as object);
-    const blockId = (t as unknown as { _blockId?: string })._blockId;
-    if (blockId) editsRef.current[blockId] = t.text || "";
-    t.canvas?.requestRenderAll();
+    if (t) {
+      t.set(props as object);
+      const blockId = (t as unknown as { _blockId?: string })._blockId;
+      if (blockId) editsRef.current[blockId] = t.text || "";
+      t.canvas?.requestRenderAll();
+    }
     refresh();
   };
 
   const toggleStyle = (key: "fontWeight" | "fontStyle" | "underline") => {
     const t = activeTextRef.current;
-    if (!t) return;
     if (key === "fontWeight") {
-      t.set({ fontWeight: t.fontWeight === "700" ? "400" : "700" });
+      const next = t ? (t.fontWeight === "700" ? "400" : "700") : (prefRef.current.bold ? "400" : "700");
+      updateActive({ fontWeight: next });
     } else if (key === "fontStyle") {
-      t.set({ fontStyle: t.fontStyle === "italic" ? "normal" : "italic" });
+      const next = t ? (t.fontStyle === "italic" ? "normal" : "italic") : (prefRef.current.italic ? "normal" : "italic");
+      updateActive({ fontStyle: next });
     } else {
-      t.set({ underline: !t.underline });
+      const next = t ? !t.underline : !prefRef.current.underline;
+      updateActive({ underline: next });
     }
-    t.canvas?.requestRenderAll();
-    refresh();
   };
-
-  const nudge = (dx: number, dy: number) => {
     const t = activeTextRef.current;
     if (!t) return;
     t.set({ left: (t.left || 0) + dx, top: (t.top || 0) + dy });
